@@ -48,7 +48,4 @@ dotnet build
 
 ## License
 
-[GNU AGPL v3](LICENSE), to comply with iText7's AGPL licensing. If you want
-to use this tool's approach in a project under different licensing terms,
-you'll need an [iText commercial license](https://itextpdf.com/how-buy) (or
-to swap in a non-AGPL PDF library for the annotation-writing step).
+[GNU AGPL v3](LICENSE), to comply with iText7's AGPL licensing.
