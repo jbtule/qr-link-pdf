@@ -49,3 +49,7 @@ dotnet build
 ## License
 
 [GNU AGPL v3](LICENSE)
+
+---
+
+🤖 Written with [Claude Code](https://claude.com/claude-code).
