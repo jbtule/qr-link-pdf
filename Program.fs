@@ -15,8 +15,8 @@ open iText.Kernel.Geom
 /// of small/dense codes, slower and more memory.
 let private scanDpi = 400
 
-/// Set QRLINK_DEBUG=1 to dump each rasterized page as a PNG and log every
-/// QR code ZXing finds, including ones whose payload isn't a URL.
+/// Set QRLINK_DEBUG=1 to log every QR code found per page (box + payload)
+/// before the URL filter is applied.
 let private debug = Environment.GetEnvironmentVariable("QRLINK_DEBUG") = "1"
 
 /// One QR code found on a page, in PDF user-space coordinates (points,
