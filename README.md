@@ -48,4 +48,4 @@ dotnet build
 
 ## License
 
-[GNU AGPL v3](LICENSE), to comply with iText7's AGPL licensing.
+[GNU AGPL v3](LICENSE)
