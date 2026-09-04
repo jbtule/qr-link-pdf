@@ -26,12 +26,23 @@
          net9.0-browser1.0 folder, so set it here explicitly. -->
     <PDFiumUseSystemLibjpeg>true</PDFiumUseSystemLibjpeg>
 
-    <!-- Deliberately off. ZXing's decode loop is pure managed and runs
-         interpreted without AOT, but measured it doesn't matter: a Release
-         build scans a 7-code handout in ~2.5s on a laptop (vs 8.5s for Debug)
-         and is comfortable on a phone. AOT would trade multi-minute publishes
-         and trimming risk for speed nothing needs. Revisit only if a real PDF
-         gets slow. -->
+    <!-- Deliberately off, and it has been tried: AOT builds and runs fine
+         here - iText's reflective BouncyCastle lookup, F# printf and Bolero's
+         component activation all survive it, so this is a size decision, not
+         a compatibility one.
+
+         Measured on a 7-code handout: AOT scans in 1.4s against 2.5s
+         interpreted, but grows the bundle from 27 MB to 67 MB, nearly all of
+         it dotnet.native.wasm going 8.5 MB -> 48 MB. Most of the wall time is
+         PDFium rasterizing, which is already native and gains nothing, so
+         only ZXing's managed decode loop speeds up. Trading a much slower
+         first load for ~1s is a poor deal for a tool someone uses once.
+
+         Note trimming is already on regardless: Blazor publish defaults to
+         PublishTrimmed with TrimMode=partial.
+
+         If this is ever turned on, turn it on in QrLinkPdf.Wasm.SmokeTest as
+         well, or ./smoke-wasm.sh stops testing the configuration that ships. -->
     <RunAOTCompilation>false</RunAOTCompilation>
 
     <!-- Deliberately not invariant: InvariantGlobalization implies
