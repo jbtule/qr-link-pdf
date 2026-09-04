@@ -184,6 +184,26 @@ The asset host and base path are the `ASSET_BASE` and `BASE_HREF` variables at
 the top of the workflow. Assets deploy before the page, because the page
 references fingerprinted filenames that must already exist.
 
+### Running CI locally
+
+```sh
+./ci-local.sh
+```
+
+Replays the workflow's build job on Linux in a container, against your working
+tree rather than `HEAD`, so you can answer "would CI pass?" before pushing. It
+extracts the job's own `run:` steps out of the workflow instead of
+reimplementing them, so the two can't drift.
+
+Needs [Apple's `container`](https://github.com/apple/container) (macOS 26+) or
+Docker. The first run builds an image with the `wasm-tools` workload baked in
+and takes a few minutes; later runs reuse it.
+
+This is worth having because the interesting failures are all
+platform-specific and invisible on macOS — a SkiaSharp native asset that only
+resolves wrong on Linux, an Emscripten link that needs `python` on `PATH`, a
+`node` too old to treat `dotnet.js` as an ES module.
+
 ## License
 
 [GNU AGPL v3](LICENSE)
