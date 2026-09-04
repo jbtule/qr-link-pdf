@@ -1,0 +1,65 @@
+<Project Sdk="Microsoft.NET.Sdk.BlazorWebAssembly">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <!-- The browser TFM is what makes NuGet pick PDFtoImage's
+         lib/net10.0-browser1.0 assets and its browser dependency group (the
+         PDFium Emscripten archive). A plain net10.0 app would silently get the
+         desktop build, which P/Invokes a pdfium shared library that doesn't
+         exist in a browser. -->
+    <TargetFramework>net10.0-browser</TargetFramework>
+    <RuntimeIdentifier>browser-wasm</RuntimeIdentifier>
+    <RootNamespace>QrLinkPdf.Wasm</RootNamespace>
+    <AssemblyName>QrLinkPdf.Wasm</AssemblyName>
+
+    <!-- PDFium and Skia ship as Emscripten static archives that have to be
+         linked into dotnet.wasm. Forced on so plain `dotnet build` relinks too,
+         not just `publish` - otherwise dev runs get a runtime with no PDFium in
+         it and fail with EntryPointNotFoundException. -->
+    <WasmBuildNative>true</WasmBuildNative>
+    <!-- PDFium is not thread-safe, and this also selects SkiaSharp's
+         single-threaded archive variant. -->
+    <WasmEnableThreads>false</WasmEnableThreads>
+    <WasmEnableSIMD>true</WasmEnableSIMD>
+    <!-- PDFium resolves libjpeg from libSkiaSharp.a rather than bundling its
+         own. PDFtoImage sets this in buildTransitive, but only under a
+         net9.0-browser1.0 folder, so set it here explicitly. -->
+    <PDFiumUseSystemLibjpeg>true</PDFiumUseSystemLibjpeg>
+
+    <!-- Off for now: AOT turns a build into a many-minute affair. Worth turning
+         on once this works, because ZXing's decode loop is pure managed and
+         runs interpreted until then. -->
+    <RunAOTCompilation>false</RunAOTCompilation>
+
+    <!-- Deliberately not invariant: InvariantGlobalization implies
+         PredefinedCulturesOnly, and iText has culture-sensitive code paths.
+         Download size isn't a concern here, so keep ICU. -->
+    <InvariantGlobalization>false</InvariantGlobalization>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="Main.fs" />
+    <Compile Include="Startup.fs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Bolero" Version="0.25.63" />
+    <PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly" Version="10.0.11" />
+    <PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly.DevServer" Version="10.0.11" PrivateAssets="all" />
+
+    <!-- Keep managed and native Skia on the same version. ZXing.Net.Bindings.SkiaSharp
+         forces managed SkiaSharp to 4.151.1, while PDFtoImage's browser dependency
+         group would otherwise bring the 4.150.1 native archive - and SkiaSharp's
+         managed/native contract is a raw C ABI with no version negotiation. -->
+    <PackageReference Include="SkiaSharp" Version="4.151.1" />
+    <PackageReference Include="SkiaSharp.NativeAssets.WebAssembly" Version="4.151.1" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- itext7 / PDFtoImage / ZXing come through here. They deliberately aren't
+         repeated above: NuGet resolves the transitive graph against this
+         project's TFM, so they pick their browser assets on their own. -->
+    <ProjectReference Include="../QrLinkPdf.Core/QrLinkPdf.Core.fsproj" />
+  </ItemGroup>
+
+</Project>

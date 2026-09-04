@@ -1,0 +1,160 @@
+:root {
+    color-scheme: light dark;
+    --ink: #1c1b18;
+    --muted: #6b6862;
+    --ground: #faf8f4;
+    --panel: #ffffff;
+    --line: #e3ded4;
+    --accent: #2f5d3f;
+    --danger: #8a2b1e;
+}
+
+@media (prefers-color-scheme: dark) {
+    :root {
+        --ink: #ece8e0;
+        --muted: #9a958c;
+        --ground: #17181a;
+        --panel: #202225;
+        --line: #33363a;
+        --accent: #7fb894;
+        --danger: #e08d7e;
+    }
+}
+
+body {
+    margin: 0;
+    padding: 2.5rem 1.25rem;
+    background: var(--ground);
+    color: var(--ink);
+    font: 16px/1.55 system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+
+.wrap {
+    max-width: 44rem;
+    margin: 0 auto;
+}
+
+h1 {
+    margin: 0 0 .35rem;
+    font-size: 1.6rem;
+    letter-spacing: -.015em;
+}
+
+.lede {
+    margin: 0 0 1.75rem;
+    color: var(--muted);
+}
+
+.picker {
+    padding: 1.5rem;
+    border: 1px dashed var(--line);
+    border-radius: 10px;
+    background: var(--panel);
+}
+
+.status {
+    margin-top: 1.25rem;
+    color: var(--muted);
+}
+
+.result,
+.error {
+    margin-top: 1.5rem;
+    padding: 1.25rem;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    background: var(--panel);
+}
+
+.error {
+    border-color: var(--danger);
+}
+
+.count {
+    margin: 0 0 .75rem;
+    font-weight: 600;
+}
+
+ul.links {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+ul.links li {
+    display: flex;
+    gap: .6rem;
+    align-items: baseline;
+    padding: .4rem 0;
+    border-top: 1px solid var(--line);
+}
+
+ul.links li:first-child {
+    border-top: 0;
+}
+
+.page {
+    flex: 0 0 auto;
+    color: var(--muted);
+    font-size: .82rem;
+    font-variant-numeric: tabular-nums;
+}
+
+ul.links a {
+    color: var(--accent);
+    word-break: break-all;
+}
+
+.actions {
+    display: flex;
+    gap: .6rem;
+    margin-top: 1.1rem;
+}
+
+button {
+    padding: .5rem .9rem;
+    border: 1px solid var(--line);
+    border-radius: 7px;
+    background: transparent;
+    color: var(--ink);
+    font: inherit;
+    font-size: .92rem;
+    cursor: pointer;
+}
+
+button.primary {
+    border-color: var(--accent);
+    background: var(--accent);
+    color: var(--ground);
+    font-weight: 600;
+}
+
+.log {
+    margin-top: 1.25rem;
+    color: var(--muted);
+    font-size: .88rem;
+}
+
+.log pre {
+    overflow-x: auto;
+    padding: .75rem;
+    border-radius: 7px;
+    background: var(--panel);
+    font-size: .8rem;
+}
+
+.booting {
+    color: var(--muted);
+}
+
+#blazor-error-ui {
+    display: none;
+    position: fixed;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    z-index: 1000;
+    padding: .8rem 1.25rem;
+    background: var(--danger);
+    color: #fff;
+}

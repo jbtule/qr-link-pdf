@@ -32,6 +32,30 @@
             "problemMatcher": "$msCompile"
         },
         {
+            "label": "build-wasm",
+            "command": "dotnet",
+            "type": "process",
+            "args": [
+                "build",
+                "${workspaceFolder}/QrLinkPdf.Wasm/QrLinkPdf.Wasm.fsproj",
+                "/property:GenerateFullPaths=true",
+                "/consoleloggerparameters:NoSummary"
+            ],
+            "problemMatcher": "$msCompile"
+        },
+        {
+            "label": "run-wasm",
+            "command": "dotnet",
+            "type": "process",
+            "args": [
+                "run",
+                "--project",
+                "${workspaceFolder}/QrLinkPdf.Wasm"
+            ],
+            "isBackground": true,
+            "problemMatcher": "$msCompile"
+        },
+        {
             "label": "watch",
             "command": "dotnet",
             "type": "process",

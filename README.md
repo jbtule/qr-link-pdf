@@ -84,6 +84,28 @@ Behaviour is tuned through `ScanOptions`:
 `Scanner.findOnBitmap` is public too, if you want the QR detection against an
 `SKBitmap` without any PDF involved.
 
+## Web app
+
+`QrLinkPdf.Wasm` is the same library running entirely in the browser — a
+[Bolero](https://fsbolero.io/) (F# Blazor WebAssembly) page where you pick a
+PDF and get the linked copy back. Nothing is uploaded anywhere; PDFium, Skia
+and the whole .NET runtime are compiled to WebAssembly and run locally.
+
+It needs the `wasm-tools` workload, because PDFium and Skia ship as Emscripten
+static archives that get linked into `dotnet.wasm` at build time:
+
+```sh
+sudo dotnet workload install wasm-tools
+dotnet run --project QrLinkPdf.Wasm
+```
+
+The first build relinks the runtime with Emscripten, which takes a while;
+after that it's incremental.
+
+The browser scans at 300 DPI over two pyramid levels rather than the CLI's 400
+DPI over four, which finds the same codes several times faster. Don't lower it
+further — at 200 DPI the test handout drops from 7 codes found to 5.
+
 ## Building
 
 Requires the [.NET SDK](https://dotnet.microsoft.com/) (10.0+).
@@ -91,6 +113,11 @@ Requires the [.NET SDK](https://dotnet.microsoft.com/) (10.0+).
 ```sh
 dotnet build
 ```
+
+That builds the CLI and the library. The browser app is deliberately left out
+of the default build so the `wasm-tools` workload isn't needed just to build
+the command-line tool — build it explicitly with
+`dotnet build QrLinkPdf.Wasm/QrLinkPdf.Wasm.fsproj`.
 
 ## License
 
