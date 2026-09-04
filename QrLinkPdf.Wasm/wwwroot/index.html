@@ -18,8 +18,42 @@
         Something went wrong. <a href="." class="reload">Reload</a>
     </div>
 
+    <script>
+        // Origin serving the .NET runtime and assemblies. Empty means "same
+        // origin", which is what a local `dotnet run` wants. The deploy
+        // workflow rewrites this to the CDN, because the page itself is on
+        // GitHub Pages - which only gzips, and has a bandwidth budget - while
+        // the ~25 MB of runtime is better off somewhere with brotli and no cap.
+        window.qrLinkPdfAssetBase = "";
+    </script>
     <script src="download.js"></script>
-    <script src="_framework/blazor.webassembly.js"></script>
+    <script src="_framework/blazor.webassembly.js" autostart="false"></script>
+    <script>
+        Blazor.start({
+            loadBootResource: function (type, name, defaultUri, integrity) {
+                var base = window.qrLinkPdfAssetBase;
+                if (!base) {
+                    return null; // same origin, default loading
+                }
+
+                switch (type) {
+                    case 'dotnetjs':
+                    case 'dotnetwasm':
+                    case 'timezonedata':
+                    case 'assembly':
+                    case 'pdb':
+                        // Keep whatever fingerprinted filename Blazor resolved
+                        // and only swap the origin, so cache-busting still works.
+                        var index = defaultUri.indexOf('_framework/');
+                        return index < 0 ? null : base + defaultUri.substring(index);
+                    default:
+                        // Boot config and manifests stay put; they're tiny and
+                        // the loader wants them alongside the page.
+                        return null;
+                }
+            }
+        });
+    </script>
 </body>
 
 </html>

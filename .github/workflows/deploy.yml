@@ -1,0 +1,137 @@
+# Builds the browser app and deploys it across two hosts:
+#
+#   GitHub Pages  - index.html, css, and the ~50 KB Blazor bootstrap (~65 KB)
+#   Cloudflare    - the .NET runtime, PDFium, Skia and every assembly (~27 MB)
+#
+# The split exists because GitHub Pages only gzips and has a 100 GB/month soft
+# bandwidth limit, while Cloudflare serves static assets with brotli/zstd and no
+# cap. index.html redirects the heavy boot resources with Blazor's
+# loadBootResource hook, so the page keeps its tools.tuley.name/qr-link-pdf URL.
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Never let two deploys interleave: the shell references fingerprinted asset
+# names, so it must not go live before its matching assets.
+concurrency:
+  group: deploy
+  cancel-in-progress: false
+
+env:
+  # Where the runtime is served from. Must end in a slash. Change this if the
+  # Cloudflare Pages project or its custom domain changes.
+  ASSET_BASE: https://qr-link-pdf-assets.pages.dev/
+  # GitHub Pages serves project sites under /<repo>/.
+  BASE_HREF: /qr-link-pdf/
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+          cache: true
+          cache-dependency-path: '**/*.fsproj'
+
+      # PDFium and Skia are Emscripten static archives that get linked into
+      # dotnet.wasm, so the native toolchain is required.
+      - name: Install wasm-tools
+        run: dotnet workload install wasm-tools
+
+      - name: Test
+        run: dotnet test QrLinkPdf.Tests/QrLinkPdf.Tests.fsproj --configuration Release
+
+      # Gate the deploy on the library actually working under WebAssembly.
+      # A normal test run uses the desktop native libraries and would not
+      # catch a broken Emscripten link.
+      - name: Smoke test WebAssembly
+        run: ./smoke-wasm.sh
+
+      # No .br/.gz: Cloudflare compresses on the fly and GitHub Pages can't
+      # serve precompressed files anyway. Saves ~20 MB per deploy.
+      - name: Publish
+        run: >
+          dotnet publish QrLinkPdf.Wasm/QrLinkPdf.Wasm.fsproj
+          --configuration Release
+          -p:CompressionEnabled=false
+
+      - name: Split the output across the two hosts
+        run: |
+          set -euo pipefail
+          pub=QrLinkPdf.Wasm/bin/Release/net10.0-browser/publish/wwwroot
+          mkdir -p shell/_framework assets/_framework
+
+          cp "$pub/app.css" "$pub/download.js" shell/
+          # The bootstrap script is loaded by a <script> tag, not by
+          # loadBootResource, so it has to sit next to the page.
+          cp "$pub"/_framework/blazor.webassembly*.js shell/_framework/
+
+          cp -R "$pub"/_framework/. assets/_framework/
+          rm -f assets/_framework/blazor.webassembly*.js
+
+          # Point the page at its real base path and at the asset host.
+          # Written out rather than edited in place, so this step behaves the
+          # same on a Mac as on the runner and can be dry-run locally.
+          sed -e "s|<base href=\"/\" />|<base href=\"${BASE_HREF}\" />|" \
+              -e "s|window.qrLinkPdfAssetBase = \"\";|window.qrLinkPdfAssetBase = \"${ASSET_BASE}\";|" \
+              "$pub/index.html" > shell/index.html
+
+          grep -q "${BASE_HREF}" shell/index.html
+          grep -q "${ASSET_BASE}" shell/index.html
+
+          # Cross-origin fetches need this or the runtime never loads. Blazor
+          # also verifies asset integrity, which requires a non-opaque response.
+          cat > assets/_headers <<EOF
+          /_framework/*
+            Access-Control-Allow-Origin: https://tools.tuley.name
+          EOF
+
+          echo "shell:  $(du -sh shell | cut -f1)"
+          echo "assets: $(du -sh assets | cut -f1)"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: assets
+          path: assets
+          retention-days: 1
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: shell
+
+  # Assets go first: the shell is useless until the runtime it points at exists.
+  assets:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: assets
+          path: assets
+
+      - uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: pages deploy assets --project-name=qr-link-pdf-assets --branch=main
+
+  pages:
+    needs: assets
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

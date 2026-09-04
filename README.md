@@ -152,6 +152,38 @@ a CI gate. This is the only automated check that covers the Emscripten
 static-archive linking of PDFium and Skia; a normal test run cannot, because
 it uses the desktop native libraries instead. Needs the `wasm-tools` workload.
 
+## Deploying
+
+The browser app is published by [`.github/workflows/deploy.yml`](.github/workflows/deploy.yml)
+on every push to `main`, split across two hosts:
+
+| | Serves | Size |
+| --- | --- | --- |
+| GitHub Pages | `index.html`, CSS, and the Blazor bootstrap script | ~65 KB |
+| Cloudflare Pages | the .NET runtime, PDFium, Skia and every assembly | ~27 MB |
+
+The page keeps its `tools.tuley.name/qr-link-pdf` address while the heavy boot
+resources come from a host that serves brotli and doesn't meter bandwidth —
+GitHub Pages only gzips and has a 100 GB/month soft limit. `index.html`
+redirects them with Blazor's [`loadBootResource`](https://learn.microsoft.com/en-us/aspnet/core/blazor/fundamentals/startup#load-client-side-boot-resources)
+hook, and the asset host sends `Access-Control-Allow-Origin` so the
+cross-origin fetches and Blazor's integrity checks both succeed.
+
+Locally nothing is split: `window.qrLinkPdfAssetBase` is empty, so
+`dotnet run --project QrLinkPdf.Wasm` loads everything from one origin.
+
+One-time setup:
+
+1. Repository **Settings → Pages → Source: GitHub Actions**.
+2. A Cloudflare Pages project named `qr-link-pdf-assets` (direct upload, no
+   build step).
+3. Repository secrets `CLOUDFLARE_API_TOKEN` (with the *Cloudflare Pages: Edit*
+   permission) and `CLOUDFLARE_ACCOUNT_ID`.
+
+The asset host and base path are the `ASSET_BASE` and `BASE_HREF` variables at
+the top of the workflow. Assets deploy before the page, because the page
+references fingerprinted filenames that must already exist.
+
 ## License
 
 [GNU AGPL v3](LICENSE)
