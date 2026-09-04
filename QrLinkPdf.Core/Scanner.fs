@@ -15,7 +15,12 @@ let private makeReader () =
     reader.Options.PossibleFormats <- [| BarcodeFormat.QR_CODE |]
     reader.Options.TryHarder <- true
     reader.Options.PureBarcode <- false
-    reader.AutoRotate <- true
+    // Deliberately NOT AutoRotate. QR detection is already rotation-invariant
+    // (the finder patterns carry the orientation), so it finds nothing extra -
+    // but when a code decodes only on the rotated pass, ZXing reports its
+    // corner points in the *rotated* image's coordinates, which we would then
+    // map as if they were upright. That produces a phantom link at a
+    // transposed position, sometimes off the page entirely.
     reader
 
 /// Turn a ZXing result's finder-pattern corner points into a padded

@@ -132,6 +132,13 @@ the scanner says it found it. That covers the parts most likely to break
 quietly — the image-to-PDF Y flip, page numbering, and the URL filter — and it
 means no real-world document has to be published to have a regression suite.
 
+[DegradedTests.fs](QrLinkPdf.Tests/DegradedTests.fs) roughs the generated codes
+up first — rotating, downsampling, fading and JPEG-mangling them — because
+crisp fixtures never exercise the multi-scale pyramid in
+[Scanner.fs](QrLinkPdf.Core/Scanner.fs) that exists for exactly that kind of
+input. One test pins the pyramid's value directly: a washed-out code that a
+single full-resolution pass cannot see, and the pyramid can.
+
 ### Proving the browser build
 
 ```sh
