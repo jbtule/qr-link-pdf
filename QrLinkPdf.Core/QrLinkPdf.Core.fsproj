@@ -17,6 +17,18 @@
     <PackageReference Include="PDFtoImage" Version="5.4.0" />
     <PackageReference Include="ZXing.Net" Version="0.16.11" />
     <PackageReference Include="ZXing.Net.Bindings.SkiaSharp" Version="0.16.24" />
+
+    <!-- Keep managed SkiaSharp and every native asset on one version.
+         ZXing.Net.Bindings.SkiaSharp requires SkiaSharp >= 4.151.1 while
+         PDFtoImage asks for 4.150.1, so the managed library resolves to
+         4.151.1 and the macOS/Windows natives follow it. The Linux native is
+         pinned directly by PDFtoImage, though, so without this it stays at
+         4.150.1 and SkiaSharp's startup version check throws
+         "native libSkiaSharp (150.0) is incompatible ... range [151.0, 152.0)".
+         That only shows up on Linux, so it passes locally on a Mac and fails
+         in CI. -->
+    <PackageReference Include="SkiaSharp" Version="4.151.1" />
+    <PackageReference Include="SkiaSharp.NativeAssets.Linux.NoDependencies" Version="4.151.1" />
   </ItemGroup>
 
 </Project>
