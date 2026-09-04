@@ -48,6 +48,12 @@
             "problemMatcher": "$msCompile"
         },
         {
+            "label": "smoke-wasm",
+            "command": "${workspaceFolder}/smoke-wasm.sh",
+            "type": "process",
+            "problemMatcher": []
+        },
+        {
             "label": "build-wasm",
             "command": "dotnet",
             "type": "process",

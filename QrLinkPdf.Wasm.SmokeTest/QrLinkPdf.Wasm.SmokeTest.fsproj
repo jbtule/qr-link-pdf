@@ -1,0 +1,48 @@
+<!-- Proves the browser build actually works: runs QrLinkPdf.Core compiled to
+     WebAssembly, under node, and exits non-zero if anything is wrong. No test
+     framework, no browser, no web server - just the exit code. -->
+<Project Sdk="Microsoft.NET.Sdk.WebAssembly">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <!-- Must stay Microsoft.NET.Sdk.WebAssembly and net10.0-browser: the first
+         is what makes SkiaSharp's targets contribute their NativeFileReference,
+         the second is what makes NuGet pick PDFtoImage's browser assets. Under
+         a plain Microsoft.NET.Sdk this builds fine and then dies at runtime
+         with EntryPointNotFoundException. -->
+    <TargetFramework>net10.0-browser</TargetFramework>
+    <RuntimeIdentifier>browser-wasm</RuntimeIdentifier>
+    <RootNamespace>QrLinkPdf.Wasm.SmokeTest</RootNamespace>
+    <IsPackable>false</IsPackable>
+
+    <!-- Same native linking settings as the app, so this exercises the same
+         dotnet.wasm the browser gets. -->
+    <WasmBuildNative>true</WasmBuildNative>
+    <WasmEnableThreads>false</WasmEnableThreads>
+    <WasmEnableSIMD>true</WasmEnableSIMD>
+    <PDFiumUseSystemLibjpeg>true</PDFiumUseSystemLibjpeg>
+    <InvariantGlobalization>false</InvariantGlobalization>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Source-included rather than duplicated: the same fixture generator the
+         CLR tests use. -->
+    <Compile Include="../QrLinkPdf.Tests/TestPdfs.fs" />
+    <Compile Include="Program.fs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="SkiaSharp" Version="4.151.1" />
+    <PackageReference Include="SkiaSharp.NativeAssets.WebAssembly" Version="4.151.1" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../QrLinkPdf.Core/QrLinkPdf.Core.fsproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Lands next to the generated _framework/ so its relative import works. -->
+    <None Include="wwwroot/runtests.mjs" CopyToOutputDirectory="PreserveNewest" Link="wwwroot/runtests.mjs" />
+  </ItemGroup>
+
+</Project>

@@ -132,6 +132,19 @@ the scanner says it found it. That covers the parts most likely to break
 quietly — the image-to-PDF Y flip, page numbering, and the URL filter — and it
 means no real-world document has to be published to have a regression suite.
 
+### Proving the browser build
+
+```sh
+./smoke-wasm.sh
+```
+
+Compiles the library to WebAssembly and runs it under `node` — no browser, no
+web server, no test framework — checking that a code is found, decoded,
+located and annotated. It exits non-zero if anything is wrong, so it works as
+a CI gate. This is the only automated check that covers the Emscripten
+static-archive linking of PDFium and Skia; a normal test run cannot, because
+it uses the desktop native libraries instead. Needs the `wasm-tools` workload.
+
 ## License
 
 [GNU AGPL v3](LICENSE)
