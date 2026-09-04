@@ -101,3 +101,24 @@ let ``keeps degraded finds inside the page`` () =
         Assert.InRange(link.Right, 0.0, float (size.GetWidth()))
         Assert.InRange(link.Bottom, 0.0, float (size.GetHeight()))
         Assert.InRange(link.Top, 0.0, float (size.GetHeight()))
+
+[<Fact>]
+let ``the interactive scan finds everything the default scan does`` () =
+    // ScanOptions.Interactive is what the browser uses. It is allowed to be
+    // faster than Default; it is not allowed to be blinder. An earlier version
+    // used Scales = [1.0; 0.5] and silently stopped finding the faded code.
+    let fixtures =
+        [ "crisp", Crisp
+          "rotated", Rotated 12f
+          "resampled", Resampled 0.12f
+          "faded", Faded 0.7f
+          "jpeg", JpegArtifacts 5 ]
+
+    for name, degradation in fixtures do
+        let pdf = fixture degradation
+        let expected = (atDpi ScanOptions.Default.Scales pdf).Length
+
+        use input = new MemoryStream(pdf)
+        let actual = (PdfQrLinker.scan ScanOptions.Interactive input).Length
+
+        Assert.True(actual >= expected, sprintf "%s: Default found %d, Interactive found %d" name expected actual)

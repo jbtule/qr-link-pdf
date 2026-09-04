@@ -15,14 +15,8 @@ open QrLinkPdf
 /// blows straight through.
 let private maxUploadBytes = 64L * 1024L * 1024L
 
-/// The scan runs interpreted in the browser - ZXing's decoding is pure managed
-/// - so trim the DPI and the pyramid down from the CLI defaults to keep it
-/// bearable. Dropping the 1.0 level also avoids a full-size bitmap copy.
-let private browserOptions trace =
-    { ScanOptions.Default with
-        Dpi = 300
-        Scales = [ 1.0; 0.5 ]
-        Trace = trace }
+/// ZXing decodes interpreted in the browser, so use the lighter scan.
+let private browserOptions trace = { ScanOptions.Interactive with Trace = trace }
 
 type State =
     | Idle

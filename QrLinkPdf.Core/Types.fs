@@ -59,3 +59,15 @@ module ScanOptions =
           Scales = [ 1.0; 0.6; 0.4; 0.25 ]
           UriFilter = defaultUriFilter
           Trace = ignore }
+
+    /// Tuned for somebody waiting on the result - about half the work of
+    /// `Default` for the same detection on the fixtures in the test suite.
+    ///
+    /// The dropped resolution is what saves the time; the scan pyramid is
+    /// kept nearly intact on purpose. Trimming it to [1.0; 0.5] is tempting
+    /// and measurably wrong: it stops finding low-contrast codes, because the
+    /// smallest level is doing the work described in `Scanner.findOnBitmap`.
+    let Interactive =
+        { Default with
+            Dpi = 300
+            Scales = [ 1.0; 0.5; 0.25 ] }
