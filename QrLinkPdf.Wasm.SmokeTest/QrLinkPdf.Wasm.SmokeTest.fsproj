@@ -43,6 +43,7 @@
   <ItemGroup>
     <!-- Lands next to the generated _framework/ so its relative import works. -->
     <None Include="wwwroot/runtests.mjs" CopyToOutputDirectory="PreserveNewest" Link="wwwroot/runtests.mjs" />
+    <None Include="wwwroot/package.json" CopyToOutputDirectory="PreserveNewest" Link="wwwroot/package.json" />
   </ItemGroup>
 
 </Project>

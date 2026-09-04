@@ -1,0 +1,5 @@
+{
+  "//": "Makes node treat the generated _framework/*.js as ES modules. Without this, node resolves them as CommonJS and importing dotnet.js fails with \"Named export 'dotnet' not found\". Node 22+ guesses correctly on its own; older versions do not. Browsers ignore this file.",
+  "type": "module",
+  "private": true
+}
