@@ -119,6 +119,19 @@ of the default build so the `wasm-tools` workload isn't needed just to build
 the command-line tool — build it explicitly with
 `dotnet build QrLinkPdf.Wasm/QrLinkPdf.Wasm.fsproj`.
 
+## Tests
+
+```sh
+dotnet test QrLinkPdf.Tests
+```
+
+The tests generate their own PDFs rather than checking in fixture files:
+[TestPdfs.fs](QrLinkPdf.Tests/TestPdfs.fs) draws QR codes at chosen positions
+on generated pages, so a test can state where it put a code and assert on where
+the scanner says it found it. That covers the parts most likely to break
+quietly — the image-to-PDF Y flip, page numbering, and the URL filter — and it
+means no real-world document has to be published to have a regression suite.
+
 ## License
 
 [GNU AGPL v3](LICENSE)
