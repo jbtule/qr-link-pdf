@@ -1,9 +1,9 @@
 # qr-link-pdf
 
-A small F# command-line tool that finds QR codes in a PDF and turns each one
-into a real, clickable hyperlink annotation in the PDF — so a printed flyer
-that's been scanned back to PDF (or one where the links were never live to
-begin with) becomes clickable on screen too.
+A small F# library and command-line tool that finds QR codes in a PDF and
+turns each one into a real, clickable hyperlink annotation in the PDF — so a
+printed flyer that's been scanned back to PDF (or one where the links were
+never live to begin with) becomes clickable on screen too.
 
 ## How it works
 
@@ -38,9 +38,55 @@ Set `QRLINK_DEBUG=1` to log every QR code found on each page — including
 ones whose payload didn't pass the URL filter — along with its detected
 bounding box.
 
+## Library
+
+All of the work lives in **QrLinkPdf.Core**, which exposes a stream-in /
+stream-out API — nothing touches the filesystem unless you ask it to. The
+command-line tool is a thin wrapper over it.
+
+```fsharp
+open System.IO
+open QrLinkPdf
+
+// Find the linkable QR codes without modifying anything.
+use input = File.OpenRead "flyer.pdf"
+let found = PdfQrLinker.scan ScanOptions.Default input
+for link in found do
+    printfn "page %d: %s at (%f, %f)" link.PageNumber link.Uri link.Left link.Bottom
+
+// Or write an annotated copy, and get back the links that were added.
+use input = File.OpenRead "flyer.pdf"
+use output = File.Create "flyer-linked.pdf"
+let added = PdfQrLinker.link ScanOptions.Default input output
+```
+
+`scan` and `link` read `input` to the end and leave both streams open, so the
+caller stays in charge of their lifetime. `PdfQrLinker.linkFile` is a
+file-path convenience wrapper over `link`.
+
+Behaviour is tuned through `ScanOptions`:
+
+| Field | Default | |
+| --- | --- | --- |
+| `Dpi` | `400` | Resolution each page is rasterized at for scanning. |
+| `Scales` | `[1.0; 0.6; 0.4; 0.25]` | The scan pyramid: each page is decoded at every level and the results merged. |
+| `UriFilter` | absolute URIs, plus `www.` upgraded to https | Decides which payloads get linked, and to what. Return `None` to skip a code. |
+| `Trace` | `ignore` | Receives diagnostic lines (what the CLI's `QRLINK_DEBUG` hooks up to). |
+
+```fsharp
+// e.g. faster scanning, and only link your own domain
+{ ScanOptions.Default with
+    Dpi = 200
+    Scales = [ 1.0; 0.5 ]
+    UriFilter = fun text -> if text.StartsWith "https://example.com/" then Some text else None }
+```
+
+`Scanner.findOnBitmap` is public too, if you want the QR detection against an
+`SKBitmap` without any PDF involved.
+
 ## Building
 
-Requires the [.NET SDK](https://dotnet.microsoft.com/) (9.0+).
+Requires the [.NET SDK](https://dotnet.microsoft.com/) (10.0+).
 
 ```sh
 dotnet build

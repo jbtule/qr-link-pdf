@@ -10,10 +10,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="itext7" Version="9.7.0" />
-    <PackageReference Include="PDFtoImage" Version="5.4.0" />
-    <PackageReference Include="ZXing.Net" Version="0.16.11" />
-    <PackageReference Include="ZXing.Net.Bindings.SkiaSharp" Version="0.16.24" />
+    <ProjectReference Include="QrLinkPdf.Core/QrLinkPdf.Core.fsproj" />
   </ItemGroup>
 
 </Project>
