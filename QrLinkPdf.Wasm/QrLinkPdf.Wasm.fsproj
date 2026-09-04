@@ -26,9 +26,12 @@
          net9.0-browser1.0 folder, so set it here explicitly. -->
     <PDFiumUseSystemLibjpeg>true</PDFiumUseSystemLibjpeg>
 
-    <!-- Off for now: AOT turns a build into a many-minute affair. Worth turning
-         on once this works, because ZXing's decode loop is pure managed and
-         runs interpreted until then. -->
+    <!-- Deliberately off. ZXing's decode loop is pure managed and runs
+         interpreted without AOT, but measured it doesn't matter: a Release
+         build scans a 7-code handout in ~2.5s on a laptop (vs 8.5s for Debug)
+         and is comfortable on a phone. AOT would trade multi-minute publishes
+         and trimming risk for speed nothing needs. Revisit only if a real PDF
+         gets slow. -->
     <RunAOTCompilation>false</RunAOTCompilation>
 
     <!-- Deliberately not invariant: InvariantGlobalization implies
