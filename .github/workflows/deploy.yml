@@ -80,15 +80,31 @@ jobs:
           cp -R "$pub"/_framework/. assets/_framework/
           rm -f assets/_framework/blazor.webassembly*.js
 
+          # Stamp the footer badge with the commit being deployed. Falls back
+          # to the committed "dev" defaults when GITHUB_SHA is unset, which is
+          # how ci-local.sh replays this step.
+          short=dev
+          commit=commits/main
+          if [ -n "${GITHUB_SHA:-}" ]; then
+            short=$(printf %.7s "$GITHUB_SHA")
+            commit="commit/$GITHUB_SHA"
+          fi
+
           # Point the page at its real base path and at the asset host.
           # Written out rather than edited in place, so this step behaves the
           # same on a Mac as on the runner and can be dry-run locally.
           sed -e "s|<base href=\"/\" />|<base href=\"${BASE_HREF}\" />|" \
               -e "s|window.qrLinkPdfAssetBase = \"\";|window.qrLinkPdfAssetBase = \"${ASSET_BASE}\";|" \
+              -e "s|badge/build-dev-inactive|badge/build-${short}-007ec6|" \
+              -e "s|qr-link-pdf/commits/main|qr-link-pdf/${commit}|" \
               "$pub/index.html" > shell/index.html
 
+          # A sed that silently stops matching would ship a page claiming the
+          # wrong base path, asset host or build.
           grep -q "${BASE_HREF}" shell/index.html
           grep -q "${ASSET_BASE}" shell/index.html
+          grep -q "badge/build-${short}-" shell/index.html
+          grep -q "qr-link-pdf/${commit}" shell/index.html
 
           # Cross-origin fetches need this or the runtime never loads. Blazor
           # also verifies asset integrity, which requires a non-opaque response.

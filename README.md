@@ -1,5 +1,8 @@
 # qr-link-pdf
 
+[![Deploy](https://github.com/jbtule/qr-link-pdf/actions/workflows/deploy.yml/badge.svg)](https://github.com/jbtule/qr-link-pdf/actions/workflows/deploy.yml)
+[![License: AGPL-3.0](https://img.shields.io/badge/license-AGPL--3.0-2f5d3f)](LICENSE)
+
 A small F# library and command-line tool that finds QR codes in a PDF and
 turns each one into a real, clickable hyperlink annotation in the PDF — so a
 printed flyer that's been scanned back to PDF (or one where the links were

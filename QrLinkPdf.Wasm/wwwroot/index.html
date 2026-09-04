@@ -18,6 +18,26 @@
         Something went wrong. <a href="." class="reload">Reload</a>
     </div>
 
+    <!-- Outside #main on purpose: that element is Bolero's root and gets
+         replaced when the runtime boots, so a footer inside it would vanish
+         and come back. Out here it shows during the several seconds the
+         runtime takes to load.
+
+         The build badge says "dev" until the deploy workflow rewrites it with
+         the commit it shipped - a local build genuinely isn't a release. -->
+    <footer class="badges">
+        <a href="https://github.com/jbtule/qr-link-pdf" title="Source on GitHub">
+            <img src="https://img.shields.io/badge/github-jbtule%2Fqr--link--pdf-555?logo=github&logoColor=white"
+                alt="Source on GitHub" height="20" />
+        </a>
+        <a href="https://github.com/jbtule/qr-link-pdf/commits/main" title="The commit this page was built from">
+            <img src="https://img.shields.io/badge/build-dev-inactive" alt="Build" height="20" />
+        </a>
+        <a href="https://github.com/jbtule/qr-link-pdf/blob/main/LICENSE" title="Licence">
+            <img src="https://img.shields.io/badge/license-AGPL--3.0-2f5d3f" alt="Licence: AGPL-3.0" height="20" />
+        </a>
+    </footer>
+
     <script>
         // Origin serving the .NET runtime and assemblies. Empty means "same
         // origin", which is what a local `dotnet run` wants. The deploy

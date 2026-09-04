@@ -158,3 +158,26 @@ button.primary {
     background: var(--danger);
     color: #fff;
 }
+
+/* Sits outside .wrap (it's outside Bolero's root so it survives boot), so it
+   repeats .wrap's centring to line up with the content above it. */
+.badges {
+    display: flex;
+    flex-wrap: wrap;
+    gap: .5rem;
+    max-width: 44rem;
+    margin: 2.5rem auto 0;
+    padding-top: 1.25rem;
+    border-top: 1px solid var(--line);
+}
+
+.badges a {
+    display: inline-flex;
+    /* Reserve the row's height so it doesn't reflow as the three images
+       arrive - these are the page's only external requests. */
+    min-height: 20px;
+}
+
+.badges img {
+    height: 20px;
+}
