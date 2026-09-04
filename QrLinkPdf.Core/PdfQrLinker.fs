@@ -20,7 +20,12 @@ let private pageSizes (doc: PdfDocument) =
 /// Rasterize every page and scan it, translating each hit from the bitmap's
 /// pixel space into PDF points for the page it was found on.
 let private findInBytes (options: ScanOptions) (pdfBytes: byte[]) (sizes: Map<int, float * float>) =
-    let renderOptions = RenderOptions(Dpi = options.Dpi, WithAnnotations = false, WithFormFill = false)
+    // WithFormFill draws AcroForm field appearances. Barcode form fields - the
+    // kind Acrobat generates from a calculation script - live there, and
+    // without this they are simply absent from the raster and undetectable.
+    // WithAnnotations stays off: it would draw the link annotations this tool
+    // adds, so re-linking a file would find its own work.
+    let renderOptions = RenderOptions(Dpi = options.Dpi, WithAnnotations = false, WithFormFill = true)
 
     Conversion.ToImages(pdfBytes, options = renderOptions)
     |> Seq.indexed

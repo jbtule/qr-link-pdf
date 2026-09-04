@@ -350,3 +350,21 @@ let ``linkFile round-trips through the filesystem`` () =
         Assert.Equal<string list>([ "https://example.com/on-disk" ], annotations (File.ReadAllBytes output) |> List.map (fun (_, u, _) -> u))
     finally
         Directory.Delete(directory, true)
+
+[<Fact>]
+let ``finds a code drawn by an AcroForm field`` () =
+    // Acrobat's barcode fields put the code in the field's appearance stream,
+    // not the page content, so it exists only when form rendering is on. A real
+    // document of these scanned as blank until PdfQrLinker enabled it.
+    let pdf = buildFormField "https://example.com/form-field" (72f, 500f) 160f
+
+    let found = scan pdf
+    Assert.Equal(1, found.Length)
+    Assert.Equal("https://example.com/form-field", found.Head.Uri)
+
+[<Fact>]
+let ``annotates a code drawn by an AcroForm field`` () =
+    let output, links = link (buildFormField "https://example.com/form-field" (200f, 300f) 150f)
+
+    Assert.Equal(1, links.Length)
+    Assert.Equal<string list>([ "https://example.com/form-field" ], annotations output |> List.map (fun (_, u, _) -> u))

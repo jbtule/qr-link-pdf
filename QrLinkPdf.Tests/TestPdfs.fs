@@ -6,6 +6,11 @@ open System.IO
 open SkiaSharp
 open iText.Kernel.Geom
 open iText.Kernel.Pdf
+open iText.Forms
+open iText.Forms.Fields
+open iText.Kernel.Pdf.Annot
+open iText.Kernel.Pdf.Canvas
+open iText.Kernel.Pdf.Xobject
 open iText.Layout
 open iText.Layout.Element
 open iText.Layout.Properties
@@ -146,3 +151,31 @@ let build (placements: Placement list) = buildPages PageSize.LETTER [ placements
 
 /// One letter page with a single code at the default position.
 let single (payload: string) = build [ placement payload ]
+
+/// A page whose QR code lives in an AcroForm field's appearance stream rather
+/// than in the page content. Acrobat's barcode fields are built this way, and a
+/// renderer only paints them when form rendering is switched on - a real PDF
+/// full of these scanned as completely empty until PdfQrLinker asked for it.
+let buildFormField (payload: string) (left, bottom) size : byte[] =
+    let output = new MemoryStream()
+    let writer = new PdfWriter(output)
+    writer.SetCloseStream(false)
+    let pdf = new PdfDocument(writer)
+    let page = pdf.AddNewPage(PageSize.LETTER)
+
+    let rect = Rectangle(left, bottom, size, size)
+    let data = iText.IO.Image.ImageDataFactory.Create(qrImage payload 600 Crisp)
+
+    let appearance = PdfFormXObject(Rectangle(0f, 0f, size, size))
+    PdfCanvas(appearance, pdf)
+        .AddImageFittedIntoRectangle(data, Rectangle(0f, 0f, size, size), false)
+    |> ignore
+
+    let field = TextFormFieldBuilder(pdf, "qr").SetWidgetRectangle(rect).CreateText()
+    let widget = field.GetWidgets().[0]
+    widget.SetNormalAppearance(appearance.GetPdfObject()) |> ignore
+    widget.SetFlags(PdfAnnotation.PRINT) |> ignore
+    PdfAcroForm.GetAcroForm(pdf, true).AddField(field, page)
+
+    pdf.Close()
+    output.ToArray()

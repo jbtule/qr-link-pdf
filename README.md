@@ -11,7 +11,9 @@ never live to begin with) becomes clickable on screen too.
 ## How it works
 
 1. **[PDFtoImage](https://github.com/sungaila/PDFtoImage)** rasterizes each
-   page of the PDF to a bitmap (via PDFium).
+   page of the PDF to a bitmap (via PDFium), with form-field rendering on —
+   Acrobat's barcode fields draw the code in the field's appearance stream, so
+   without it those pages rasterize with no QR code on them at all.
 2. Each page is scanned for QR codes with **[ZXing.Net](https://github.com/micjahn/ZXing.Net)**.
    Rather than a single decode pass, the page is scanned at several
    downscaled resolutions (an image pyramid) and the results are merged —
