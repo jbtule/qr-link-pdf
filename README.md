@@ -85,6 +85,7 @@ Behaviour is tuned through `ScanOptions`:
 | `Dpi` | `400` | Resolution each page is rasterized at for scanning. |
 | `Scales` | `[1.0; 0.6; 0.4; 0.25]` | The scan pyramid: each page is decoded at every level and the results merged. |
 | `UriFilter` | absolute URIs, plus `www.` upgraded to https | Decides which payloads get linked, and to what — applied to both QR payloads and text-detected URL candidates. Return `None` to skip one. |
+| `MatchBareDomains` | `false` | Also link plain text shaped like a bare domain and path (`qrco.de/trails-end`), with no `https://` or `www.` to anchor on. Off by default — unlike the scheme-anchored case, this is a shape heuristic (a known-TLD check plus a required `/path`) with a small false-positive risk, e.g. a decimal figure or version number followed by a slash. |
 | `Trace` | `ignore` | Receives diagnostic lines (what the CLI's `QRLINK_DEBUG` hooks up to). |
 
 ```fsharp
