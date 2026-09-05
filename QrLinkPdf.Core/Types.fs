@@ -33,6 +33,14 @@ type ScanOptions =
       /// Decides whether a decoded QR payload or candidate URL text run is
       /// worth linking, and what URI to link it to. Return `None` to skip it.
       UriFilter: string -> string option
+      /// Also link plain text that looks like a bare domain and path (e.g.
+      /// `qrco.de/trails-end`) with no `https://` or `www.` to anchor on.
+      /// Off by default: unlike the scheme-anchored case, this is a shape
+      /// heuristic (a known-TLD check plus a required `/path`) and carries a
+      /// real, if small, false-positive risk - a version number or decimal
+      /// figure that happens to end in a real TLD and is followed by a slash
+      /// could get linked. See `TextLinker` for the exact rule.
+      MatchBareDomains: bool
       /// Called with human-readable progress/diagnostic lines. Defaults to
       /// discarding them.
       Trace: string -> unit }
@@ -59,6 +67,7 @@ module ScanOptions =
         { Dpi = 400
           Scales = [ 1.0; 0.6; 0.4; 0.25 ]
           UriFilter = defaultUriFilter
+          MatchBareDomains = false
           Trace = ignore }
 
     /// Tuned for somebody waiting on the result - about half the work of

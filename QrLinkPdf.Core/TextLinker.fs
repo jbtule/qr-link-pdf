@@ -2,6 +2,7 @@
 /// just plain text that was never made into a live hyperlink.
 module QrLinkPdf.TextLinker
 
+open System
 open System.Collections.Generic
 open System.Text
 open System.Text.RegularExpressions
@@ -89,6 +90,44 @@ let private reconstructLine (line: Chunk list) : string * (int * int * Chunk) li
 
 let private urlPattern = Regex(@"(?:https?://|www\.)[^\s<>""']+", RegexOptions.Compiled ||| RegexOptions.IgnoreCase)
 
+/// A bare host-and-path with no scheme or "www." to anchor on, e.g.
+/// "qrco.de/trails-end". Only tried when `ScanOptions.MatchBareDomains` is
+/// set, and only accepted afterwards if `isPlausibleDomain` agrees - the
+/// shape alone ("word.word/word") also matches plenty of non-URL prose
+/// (decimal figures, version numbers, section references), so the regex
+/// deliberately overmatches and a second check does the real filtering.
+let private bareDomainPattern =
+    Regex(
+        @"\b(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+(?<tld>[a-z]{2,24})(?<path>/[^\s<>""']*)",
+        RegexOptions.Compiled ||| RegexOptions.IgnoreCase
+    )
+
+/// Common TLDs, deliberately not exhaustive. The point is to reject things
+/// that merely have the shape of a domain - "3.14/2", "v1.2/beta" - not to
+/// recognize every real domain; missing an obscure one just means a
+/// bare-domain link goes unmatched, the same safe-failure shape as
+/// everywhere else in this codebase. It never produces a wrong link.
+let private commonTlds =
+    HashSet<string>(
+        [ "com"; "net"; "org"; "info"; "biz"; "name"; "pro"; "mobi"; "int"; "edu"; "gov"; "mil"
+          "io"; "co"; "me"; "tv"; "cc"; "ai"; "app"; "dev"; "page"; "link"; "site"; "xyz"; "online"
+          "store"; "tech"; "cloud"; "shop"; "blog"; "news"; "live"; "world"; "today"; "guide"
+          "us"; "uk"; "ca"; "de"; "fr"; "es"; "it"; "nl"; "be"; "ch"; "at"; "se"; "no"; "dk"; "fi"
+          "pl"; "cz"; "sk"; "hu"; "ro"; "bg"; "gr"; "pt"; "ie"; "ru"; "ua"; "tr"; "il"; "sa"; "ae"
+          "cn"; "jp"; "kr"; "hk"; "tw"; "sg"; "my"; "th"; "vn"; "ph"; "in"; "id"; "au"; "nz"; "br"
+          "mx"; "ar"; "cl"; "pe"; "za"; "ng"; "ke"; "eg"; "ly"; "gl"; "fm"; "im"; "to"; "sh"; "gg" ],
+        StringComparer.OrdinalIgnoreCase
+    )
+
+/// Does a bare-domain-shaped match look like an actual domain? Its TLD has
+/// to be a real one, and the host has to contain a letter somewhere - a
+/// version number or decimal figure followed by a slash ("3.14/2") only
+/// clears both checks by coincidence, which is rare enough to accept.
+let private isPlausibleDomain (m: Match) =
+    let tld = m.Groups.["tld"].Value
+    let host = m.Value.Substring(0, m.Value.Length - m.Groups.["path"].Value.Length)
+    commonTlds.Contains(tld) && Regex.IsMatch(host, "[a-zA-Z]")
+
 /// Strip trailing prose punctuation ("Visit https://example.com, thanks."
 /// shouldn't link the comma or the period). A trailing ')' is only trimmed
 /// when it isn't balanced by a '(' earlier in the match, so
@@ -152,15 +191,41 @@ let findOnPage (options: ScanOptions) (doc: PdfDocument) (pageNumber: int) : QrL
         |> groupIntoLines
         |> List.collect (fun line ->
             let text, spans = reconstructLine line
+            let schemeMatches = urlPattern.Matches(text) |> Seq.cast<Match> |> List.ofSeq
 
-            [ for m in urlPattern.Matches(text) do
-                  let candidate = trimTrailingPunctuation m.Value
+            let overlapsScheme (m: Match) =
+                schemeMatches
+                |> List.exists (fun s -> m.Index < s.Index + s.Length && m.Index + m.Length > s.Index)
 
-                  if candidate <> "" then
-                      match options.UriFilter candidate with
+            // Bare-domain matches that land on text a scheme match already
+            // covers are dropped rather than double-counted - matters when
+            // e.g. "https://qrco.de/trails-end" would otherwise also satisfy
+            // the bare-domain shape on its "qrco.de/trails-end" tail.
+            let bareDomainMatches =
+                if options.MatchBareDomains then
+                    bareDomainPattern.Matches(text)
+                    |> Seq.cast<Match>
+                    |> Seq.filter (fun m -> not (overlapsScheme m) && isPlausibleDomain m)
+                    |> List.ofSeq
+                else
+                    []
+
+            // A scheme match's own text is already a valid absolute URI (or
+            // "www."-prefixed) for UriFilter to judge; a bare-domain match
+            // isn't, so it needs "https://" added before UriFilter sees it.
+            let candidates =
+                (schemeMatches |> List.map (fun m -> m, false))
+                @ (bareDomainMatches |> List.map (fun m -> m, true))
+
+            [ for (m, needsScheme) in candidates do
+                  let trimmed = trimTrailingPunctuation m.Value
+                  let filterInput = if needsScheme then "https://" + trimmed else trimmed
+
+                  if trimmed <> "" then
+                      match options.UriFilter filterInput with
                       | None -> ()
                       | Some uri ->
-                          let matchEnd = m.Index + candidate.Length
+                          let matchEnd = m.Index + trimmed.Length
 
                           let rects =
                               spans

@@ -460,3 +460,60 @@ let ``a text-derived link gets the same invisible-border annotation as a QR one`
               | _ -> () ]
 
     Assert.Equal<int list list>([ [ 0; 0; 0 ] ], border)
+
+// ------------------------------------------------------ bare-domain matching
+
+[<Fact>]
+let ``ignores a bare domain by default`` () =
+    let pdf = textParagraph "Get the app: qrco.de/trails-end" (72f, 700f) 400f
+    Assert.Empty(scan pdf)
+
+[<Fact>]
+let ``finds a bare domain when opted in`` () =
+    let pdf = textParagraph "Get the app: qrco.de/trails-end" (72f, 700f) 400f
+    let bareDomains = { options with MatchBareDomains = true }
+
+    use input = new MemoryStream(pdf)
+    let found = PdfQrLinker.scan bareDomains input
+
+    Assert.Equal(1, found.Length)
+    Assert.Equal("https://qrco.de/trails-end", found.Head.Uri)
+
+[<Fact>]
+let ``does not mistake a decimal figure with a slash for a domain`` () =
+    let pdf = textParagraph "See section 3.14/2 for the formula." (72f, 700f) 400f
+    let bareDomains = { options with MatchBareDomains = true }
+
+    use input = new MemoryStream(pdf)
+    Assert.Empty(PdfQrLinker.scan bareDomains input)
+
+[<Fact>]
+let ``does not mistake a version number with a slash for a domain`` () =
+    let pdf = textParagraph "Requires v1.2/beta or later." (72f, 700f) 400f
+    let bareDomains = { options with MatchBareDomains = true }
+
+    use input = new MemoryStream(pdf)
+    Assert.Empty(PdfQrLinker.scan bareDomains input)
+
+[<Fact>]
+let ``does not double-count a scheme URL as a bare domain too`` () =
+    let pdf = textParagraph "Visit https://qrco.de/trails-end today." (72f, 700f) 400f
+    let bareDomains = { options with MatchBareDomains = true }
+
+    use input = new MemoryStream(pdf)
+    let found = PdfQrLinker.scan bareDomains input
+
+    Assert.Equal(1, found.Length)
+    Assert.Equal("https://qrco.de/trails-end", found.Head.Uri)
+
+[<Fact>]
+let ``honours a custom UriFilter for bare domains too`` () =
+    let pdf = textParagraph "Get the app: qrco.de/trails-end" (72f, 700f) 400f
+
+    let onlyExample =
+        { options with
+            MatchBareDomains = true
+            UriFilter = fun text -> if text.StartsWith "https://example.com/" then Some text else None }
+
+    use input = new MemoryStream(pdf)
+    Assert.Empty(PdfQrLinker.scan onlyExample input)
