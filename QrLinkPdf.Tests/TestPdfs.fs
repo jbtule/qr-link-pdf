@@ -32,6 +32,10 @@ type Degradation =
     | Faded of strength: float32
     /// Re-encoded as JPEG, which rings around the high-contrast edges.
     | JpegArtifacts of quality: int
+    /// Colours inverted, as if the code were dropped into a brand-coloured
+    /// box - light modules on a dark background instead of the usual way
+    /// round.
+    | Inverted
 
 /// A QR code to place on a generated page. Position is in PDF points from the
 /// bottom-left of the page - the same space QrLink reports - so a test can
@@ -100,6 +104,18 @@ let private applyDegradation degradation (bitmap: SKBitmap) : SKBitmap =
         bitmap
 
     | JpegArtifacts _ -> bitmap
+
+    | Inverted ->
+        // By hand, like Faded, rather than a colour filter - this fixture
+        // should stay independent of however Scanner.fs implements its own
+        // inversion pass.
+        for x in 0 .. bitmap.Width - 1 do
+            for y in 0 .. bitmap.Height - 1 do
+                let c = bitmap.GetPixel(x, y)
+                let invert (channel: byte) = 255uy - channel
+                bitmap.SetPixel(x, y, SKColor(invert c.Red, invert c.Green, invert c.Blue, c.Alpha))
+
+        bitmap
 
 /// Encode a code to image bytes, degraded as asked. JPEG for the artifact case,
 /// PNG otherwise; iText reads both.

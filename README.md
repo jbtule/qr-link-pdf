@@ -22,7 +22,9 @@ the links were never live to begin with) becomes clickable on screen too.
    that's too small a fraction of a huge page, and — less intuitively — can
    also miss one that's *too large* relative to the full-resolution canvas
    despite decoding fine once the image is shrunk down. Scanning multiple
-   scales and merging catches both cases.
+   scales and merging catches both cases. Each level is also scanned with its
+   colours inverted, so a code drawn as light modules on a dark background
+   (dropped into a brand-coloured box, a common design choice) is found too.
 3. Each decoded QR's pixel-space bounding box is converted into PDF
    point-space coordinates for the page it was found on.
 4. Separately, **iText7** reads each page's actual text content and finds

@@ -112,7 +112,8 @@ let ``the interactive scan finds everything the default scan does`` () =
           "rotated", Rotated 12f
           "resampled", Resampled 0.12f
           "faded", Faded 0.7f
-          "jpeg", JpegArtifacts 5 ]
+          "jpeg", JpegArtifacts 5
+          "inverted", Inverted ]
 
     for name, degradation in fixtures do
         let pdf = fixture degradation

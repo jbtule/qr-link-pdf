@@ -95,6 +95,15 @@ let ``finds codes regardless of page size`` () =
         Assert.Equal(1, found.Length)
 
 [<Fact>]
+let ``finds a code with its colours inverted`` () =
+    // A QR code dropped into a brand-coloured box - light modules on a dark
+    // background - rather than the usual dark-on-light.
+    let pdf = build [ placement "https://example.com/inverted" |> degraded Inverted ]
+    let found = scan pdf
+    Assert.Equal(1, found.Length)
+    Assert.Equal("https://example.com/inverted", found.Head.Uri)
+
+[<Fact>]
 let ``treats two codes with the same payload as separate finds`` () =
     let pdf =
         build
