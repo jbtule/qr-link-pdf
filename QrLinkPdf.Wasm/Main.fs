@@ -114,7 +114,7 @@ let private resultView links dispatch =
 
         p {
             attr.``class`` "count"
-            sprintf "Found %d linkable QR code%s." (List.length links) (if List.length links = 1 then "" else "s")
+            sprintf "Found %d clickable link%s to add." (List.length links) (if List.length links = 1 then "" else "s")
         }
 
         ul {
@@ -176,7 +176,7 @@ let private statusView model dispatch =
     | Done [] ->
         div {
             attr.``class`` "result"
-            p { "No QR codes with URL payloads were found." }
+            p { "No QR codes or plain-text URLs worth linking were found." }
 
             button {
                 on.click (fun _ -> dispatch Reset)
@@ -203,7 +203,7 @@ let view model dispatch =
 
         p {
             attr.``class`` "lede"
-            "Choose a PDF. Every QR code whose payload is a URL becomes a real, clickable link annotation over the code, and you get the PDF back."
+            "Choose a PDF. Every QR code whose payload is a URL, and every plain-text URL that isn't already a hyperlink, becomes a real, clickable link annotation, and you get the PDF back."
         }
 
         div {

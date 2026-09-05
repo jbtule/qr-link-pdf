@@ -46,6 +46,24 @@ let private boxFromResult (inverseScale: float32) (r: Result) : DecodedCode opti
         let bottom = int ((maxY + pad) * inverseScale)
         Some { Text = r.Text; Box = SKRectI(left, top, right, bottom) }
 
+/// Invert every pixel's colour, leaving alpha alone - so a QR code drawn as
+/// light modules on a dark background (a common design choice: a code
+/// dropped into a brand-coloured box) becomes an ordinary dark-on-light code
+/// ZXing can decode. ZXing.Net's own `TryInverted` option only takes effect
+/// through `Decode`, not `DecodeMultiple` (the only entry point that reports
+/// a box, which every code here needs), so this codebase does the inversion
+/// itself and scans the result as a second image instead.
+let private invertColors (bitmap: SKBitmap) : SKBitmap =
+    let result = new SKBitmap(bitmap.Width, bitmap.Height)
+    use canvas = new SKCanvas(result)
+    use paint = new SKPaint()
+    // RGB channels negated (out = 1 - in), alpha passed through unchanged.
+    let negate =
+        [| -1f; 0f; 0f; 0f; 1f; 0f; -1f; 0f; 0f; 1f; 0f; 0f; -1f; 0f; 1f; 0f; 0f; 0f; 1f; 0f |]
+    paint.ColorFilter <- SKColorFilter.CreateColorMatrix(negate)
+    canvas.DrawBitmap(bitmap, 0f, 0f, SKSamplingOptions(SKFilterMode.Nearest, SKMipmapMode.None), paint)
+    result
+
 /// Do two detected boxes plausibly refer to the same physical QR code?
 let private sameSpot (a: SKRectI) (b: SKRectI) =
     let intersection = SKRectI.Intersect(a, b)
@@ -101,6 +119,9 @@ let findOnBitmap (options: ScanOptions) (bitmap: SKBitmap) : DecodedCode list =
 
         let inverseScale = float32 bitmap.Width / float32 level.Width
         decodeWholeImage inverseScale level |> List.iter tryAdd
+
+        use inverted = invertColors level
+        decodeWholeImage inverseScale inverted |> List.iter tryAdd
 
     options.Trace(sprintf "  %dx%d bitmap -> %d unique code(s)" bitmap.Width bitmap.Height found.Count)
 

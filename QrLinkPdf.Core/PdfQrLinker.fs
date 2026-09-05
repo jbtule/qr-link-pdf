@@ -1,6 +1,6 @@
-/// The stream-processing API: read a PDF from a stream, find the QR codes on
-/// its pages, and optionally write out a copy with a clickable link
-/// annotation over each one.
+/// The stream-processing API: read a PDF from a stream, find the QR codes and
+/// plain URL text on its pages, and optionally write out a copy with a
+/// clickable link annotation over each one.
 module QrLinkPdf.PdfQrLinker
 
 open System.IO
@@ -17,9 +17,9 @@ let private pageSizes (doc: PdfDocument) =
           i, (float (size.GetWidth()), float (size.GetHeight())) ]
     |> Map.ofList
 
-/// Rasterize every page and scan it, translating each hit from the bitmap's
-/// pixel space into PDF points for the page it was found on.
-let private findInBytes (options: ScanOptions) (pdfBytes: byte[]) (sizes: Map<int, float * float>) =
+/// Rasterize every page and scan it for QR codes, translating each hit from
+/// the bitmap's pixel space into PDF points for the page it was found on.
+let private findQrLinks (options: ScanOptions) (pdfBytes: byte[]) (sizes: Map<int, float * float>) =
     // WithFormFill draws AcroForm field appearances. Barcode form fields - the
     // kind Acrobat generates from a calculation script - live there, and
     // without this they are simply absent from the raster and undetectable.
@@ -59,6 +59,18 @@ let private findInBytes (options: ScanOptions) (pdfBytes: byte[]) (sizes: Map<in
                       Height = top - bottom }))
     |> List.ofSeq
 
+/// Find every linkable QR code and every linkable run of plain URL text on
+/// every page of `doc`.
+let private findInBytes (options: ScanOptions) (pdfBytes: byte[]) (doc: PdfDocument) =
+    let sizes = pageSizes doc
+    let qrLinks = findQrLinks options pdfBytes sizes
+
+    let textLinks =
+        [ for pageNumber in 1 .. doc.GetNumberOfPages() do
+              yield! TextLinker.findOnPage options doc pageNumber ]
+
+    qrLinks @ textLinks
+
 let private readAll (input: Stream) =
     match input with
     | :? MemoryStream as ms -> ms.ToArray()
@@ -67,7 +79,9 @@ let private readAll (input: Stream) =
         input.CopyTo(buffer)
         buffer.ToArray()
 
-/// Add a clickable (invisible border) link annotation over `link` on its page.
+/// Add a clickable (invisible border) link annotation over `link` on its
+/// page - the same treatment whether `link` came from a QR code or from
+/// plain text.
 let private addLinkAnnotation (doc: PdfDocument) (link: QrLink) =
     let rect = Rectangle(float32 link.Left, float32 link.Bottom, float32 link.Width, float32 link.Height)
     let action = PdfAction.CreateURI(link.Uri)
@@ -77,16 +91,18 @@ let private addLinkAnnotation (doc: PdfDocument) (link: QrLink) =
     annotation.SetBorder(PdfArray([| 0; 0; 0 |])) |> ignore
     doc.GetPage(link.PageNumber).AddAnnotation(annotation) |> ignore
 
-/// Find every linkable QR code in the PDF read from `input`, without
-/// modifying anything. The stream is read to the end but left open.
+/// Find every linkable QR code and plain URL text run in the PDF read from
+/// `input`, without modifying anything. The stream is read to the end but
+/// left open.
 let scan (options: ScanOptions) (input: Stream) : QrLink list =
     let bytes = readAll input
     use doc = new PdfDocument(new PdfReader(new MemoryStream(bytes)))
-    findInBytes options bytes (pageSizes doc)
+    findInBytes options bytes doc
 
 /// Copy the PDF read from `input` to `output`, adding a clickable link
-/// annotation over every QR code whose payload passes the URI filter, and
-/// return the links that were added. Both streams are left open.
+/// annotation over every QR code and plain URL text run whose payload passes
+/// the URI filter and isn't already a live hyperlink, and return the links
+/// that were added. Both streams are left open.
 let link (options: ScanOptions) (input: Stream) (output: Stream) : QrLink list =
     let bytes = readAll input
 
@@ -95,7 +111,7 @@ let link (options: ScanOptions) (input: Stream) (output: Stream) : QrLink list =
     writer.SetCloseStream(false)
     use doc = new PdfDocument(reader, writer)
 
-    let links = findInBytes options bytes (pageSizes doc)
+    let links = findInBytes options bytes doc
 
     for l in links do
         addLinkAnnotation doc l

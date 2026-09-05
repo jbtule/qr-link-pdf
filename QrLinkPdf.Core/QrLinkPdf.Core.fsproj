@@ -9,6 +9,7 @@
   <ItemGroup>
     <Compile Include="Types.fs" />
     <Compile Include="Scanner.fs" />
+    <Compile Include="TextLinker.fs" />
     <Compile Include="PdfQrLinker.fs" />
   </ItemGroup>
 
