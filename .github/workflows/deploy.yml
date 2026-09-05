@@ -28,7 +28,7 @@ concurrency:
 env:
   # Where the runtime is served from. Must end in a slash. Change this if the
   # Cloudflare Pages project or its custom domain changes.
-  ASSET_BASE: https://qr-link-pdf-assets.pages.dev/
+  ASSET_BASE: https://qr-link-pdf.asset-data.stream/
   # GitHub Pages serves project sites under /<repo>/.
   BASE_HREF: /qr-link-pdf/
 
