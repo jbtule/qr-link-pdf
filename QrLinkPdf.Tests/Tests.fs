@@ -368,3 +368,86 @@ let ``annotates a code drawn by an AcroForm field`` () =
 
     Assert.Equal(1, links.Length)
     Assert.Equal<string list>([ "https://example.com/form-field" ], annotations output |> List.map (fun (_, u, _) -> u))
+
+// ------------------------------------------------------------ text-linking
+
+[<Fact>]
+let ``finds a plain-text URL mid-sentence`` () =
+    let pdf = textParagraph "Visit https://example.com/hello today." (72f, 700f) 400f
+
+    let found = scan pdf
+    Assert.Equal(1, found.Length)
+    Assert.Equal("https://example.com/hello", found.Head.Uri)
+
+[<Fact>]
+let ``finds a URL split across two text runs on the same line`` () =
+    let text = "See https://example.com/split-here for details."
+    let pdf = textParagraphSplit text (text.IndexOf "split") (72f, 700f) 400f
+
+    let found = scan pdf
+    Assert.Equal(1, found.Length)
+    Assert.Equal("https://example.com/split-here", found.Head.Uri)
+
+[<Fact>]
+let ``trims trailing punctuation from a URL in prose`` () =
+    let pdf = textParagraph "See (https://example.com/hello), thanks." (72f, 700f) 400f
+
+    let found = scan pdf
+    Assert.Equal(1, found.Length)
+    Assert.Equal("https://example.com/hello", found.Head.Uri)
+
+[<Fact>]
+let ``does not re-link text that already has a link annotation`` () =
+    let pdf =
+        textWithExistingLink "Visit https://example.com/already-linked today." "https://example.com/already-linked" (72f, 700f) 400f
+
+    Assert.Empty(scan pdf)
+
+[<Fact>]
+let ``ignores plain text that isn't URL-shaped`` () =
+    let pdf = textParagraph "Just an ordinary sentence with no links in it." (72f, 700f) 400f
+    Assert.Empty(scan pdf)
+
+[<Fact>]
+let ``merges QR and text-derived links into one scan result`` () =
+    let pdf =
+        buildQrAndText
+            "https://example.com/qr"
+            "Also visit https://example.com/text for more."
+            (72f, 72f)
+            160f
+            (72f, 500f)
+            400f
+
+    let found = uris (scan pdf)
+    Assert.Equal<string list>([ "https://example.com/qr"; "https://example.com/text" ], found)
+
+[<Fact>]
+let ``honours a custom UriFilter for text-detected URLs too`` () =
+    let pdf = textParagraph "See https://elsewhere.test/drop for details." (72f, 700f) 400f
+
+    let onlyExample =
+        { options with
+            UriFilter = fun text -> if text.StartsWith "https://example.com/" then Some text else None }
+
+    use input = new MemoryStream(pdf)
+    Assert.Empty(PdfQrLinker.scan onlyExample input)
+
+[<Fact>]
+let ``a text-derived link gets the same invisible-border annotation as a QR one`` () =
+    let output, links = link (textParagraph "Visit https://example.com/text-link now." (72f, 700f) 400f)
+
+    Assert.Equal(1, links.Length)
+    let _, uri, _ = (annotations output).Head
+    Assert.Equal("https://example.com/text-link", uri)
+
+    use doc = new PdfDocument(new PdfReader(new MemoryStream(output)))
+
+    let border =
+        [ for annotation in doc.GetPage(1).GetAnnotations() do
+              match annotation with
+              | :? PdfLinkAnnotation as annotation ->
+                  yield [ for i in 0 .. annotation.GetBorder().Size() - 1 -> annotation.GetBorder().GetAsNumber(i).IntValue() ]
+              | _ -> () ]
+
+    Assert.Equal<int list list>([ [ 0; 0; 0 ] ], border)

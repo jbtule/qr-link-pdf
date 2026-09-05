@@ -3,10 +3,10 @@
 [![Deploy](https://github.com/jbtule/qr-link-pdf/actions/workflows/deploy.yml/badge.svg)](https://github.com/jbtule/qr-link-pdf/actions/workflows/deploy.yml)
 [![License: AGPL-3.0](https://img.shields.io/badge/license-AGPL--3.0-2f5d3f)](LICENSE)
 
-A small F# library and command-line tool that finds QR codes in a PDF and
-turns each one into a real, clickable hyperlink annotation in the PDF — so a
-printed flyer that's been scanned back to PDF (or one where the links were
-never live to begin with) becomes clickable on screen too.
+A small F# library and command-line tool that finds QR codes and plain-text
+URLs in a PDF and turns each one into a real, clickable hyperlink annotation
+in the PDF — so a printed flyer that's been scanned back to PDF (or one where
+the links were never live to begin with) becomes clickable on screen too.
 
 ## How it works
 
@@ -25,13 +25,20 @@ never live to begin with) becomes clickable on screen too.
    scales and merging catches both cases.
 3. Each decoded QR's pixel-space bounding box is converted into PDF
    point-space coordinates for the page it was found on.
-4. **[iText7](https://github.com/itext/itext7-dotnet)** opens the original
-   PDF and adds a borderless `Link` annotation over each QR code whose
-   payload looks like a URL, pointing at that URL, then saves the result.
+4. Separately, **iText7** reads each page's actual text content and finds
+   URL-shaped substrings sitting in ordinary prose (e.g. `Visit
+   https://example.com today.`) — text that was never a live link. Any
+   substring that's already covered by an existing link annotation is left
+   alone, so re-running the tool never double-links the same text.
+5. **[iText7](https://github.com/itext/itext7-dotnet)** opens the original
+   PDF and adds a borderless `Link` annotation over each QR code and each
+   text-detected URL whose payload looks like a URL, pointing at that URL,
+   then saves the result.
 
-Only QR payloads that parse as an absolute URI (or start with `www.`) get
-linked; other QR content (vCards, Wi-Fi credentials, plain text, etc.) is
-left alone.
+Only payloads that parse as an absolute URI (or start with `www.`) get
+linked — this rule applies to text-detected URLs the same way it applies to
+QR payloads; other QR content (vCards, Wi-Fi credentials, plain text, etc.)
+is left alone.
 
 ## Usage
 
@@ -39,9 +46,9 @@ left alone.
 dotnet run -- <input.pdf> <output.pdf>
 ```
 
-Set `QRLINK_DEBUG=1` to log every QR code found on each page — including
-ones whose payload didn't pass the URL filter — along with its detected
-bounding box.
+Set `QRLINK_DEBUG=1` to log every QR code and text-detected URL candidate
+found on each page — including ones whose payload didn't pass the URL filter
+— along with its detected bounding box.
 
 ## Library
 
@@ -53,7 +60,7 @@ command-line tool is a thin wrapper over it.
 open System.IO
 open QrLinkPdf
 
-// Find the linkable QR codes without modifying anything.
+// Find the linkable QR codes and URL text without modifying anything.
 use input = File.OpenRead "flyer.pdf"
 let found = PdfQrLinker.scan ScanOptions.Default input
 for link in found do
@@ -75,7 +82,7 @@ Behaviour is tuned through `ScanOptions`:
 | --- | --- | --- |
 | `Dpi` | `400` | Resolution each page is rasterized at for scanning. |
 | `Scales` | `[1.0; 0.6; 0.4; 0.25]` | The scan pyramid: each page is decoded at every level and the results merged. |
-| `UriFilter` | absolute URIs, plus `www.` upgraded to https | Decides which payloads get linked, and to what. Return `None` to skip a code. |
+| `UriFilter` | absolute URIs, plus `www.` upgraded to https | Decides which payloads get linked, and to what — applied to both QR payloads and text-detected URL candidates. Return `None` to skip one. |
 | `Trace` | `ignore` | Receives diagnostic lines (what the CLI's `QRLINK_DEBUG` hooks up to). |
 
 ```fsharp

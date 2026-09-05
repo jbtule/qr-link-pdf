@@ -4,8 +4,11 @@ module QrLinkPdf.Tests.TestPdfs
 
 open System.IO
 open SkiaSharp
+open iText.IO.Font.Constants
+open iText.Kernel.Font
 open iText.Kernel.Geom
 open iText.Kernel.Pdf
+open iText.Kernel.Pdf.Action
 open iText.Forms
 open iText.Forms.Fields
 open iText.Kernel.Pdf.Annot
@@ -178,4 +181,81 @@ let buildFormField (payload: string) (left, bottom) size : byte[] =
     PdfAcroForm.GetAcroForm(pdf, true).AddField(field, page)
 
     pdf.Close()
+    output.ToArray()
+
+/// One letter page with `text` placed at a known position, for text-linking
+/// tests to assert on where a URL was found within it.
+let textParagraph (text: string) (left, bottom) (width: float32) : byte[] =
+    let output = new MemoryStream()
+    let writer = new PdfWriter(output)
+    writer.SetCloseStream(false)
+    let pdf = new PdfDocument(writer)
+    let doc = new Document(pdf, PageSize.LETTER)
+
+    Paragraph(text).SetFixedPosition(left, bottom, UnitValue.CreatePointValue width)
+    |> doc.Add
+    |> ignore
+
+    doc.Close()
+    output.ToArray()
+
+/// Like `textParagraph`, but `text` is split into two separate text-showing
+/// runs (a plain one followed by a bold one) at the point given by
+/// `splitAt` - the way a real document might switch font or style mid-line,
+/// which is also a realistic place for a URL to land split across two chunks.
+let textParagraphSplit (text: string) (splitAt: int) (left, bottom) (width: float32) : byte[] =
+    let output = new MemoryStream()
+    let writer = new PdfWriter(output)
+    writer.SetCloseStream(false)
+    let pdf = new PdfDocument(writer)
+    let doc = new Document(pdf, PageSize.LETTER)
+    let bold = PdfFontFactory.CreateFont(StandardFonts.HELVETICA_BOLD)
+
+    let paragraph = Paragraph()
+    paragraph.Add(Text(text.Substring(0, splitAt))) |> ignore
+    paragraph.Add(Text(text.Substring(splitAt)).SetFont(bold)) |> ignore
+    paragraph.SetFixedPosition(left, bottom, UnitValue.CreatePointValue width) |> doc.Add |> ignore
+
+    doc.Close()
+    output.ToArray()
+
+/// A page with `text` at a known position, already carrying a real link
+/// annotation covering it - for proving that already-linked text is skipped
+/// rather than linked a second time.
+let textWithExistingLink (text: string) (uri: string) (left, bottom) (width: float32) : byte[] =
+    let output = new MemoryStream()
+    let writer = new PdfWriter(output)
+    writer.SetCloseStream(false)
+    let pdf = new PdfDocument(writer)
+    let doc = new Document(pdf, PageSize.LETTER)
+
+    Paragraph(text).SetFixedPosition(left, bottom, UnitValue.CreatePointValue width)
+    |> doc.Add
+    |> ignore
+
+    // Generous enough to cover wherever the line of text actually rendered.
+    let rect = Rectangle(left, bottom, width, 24f)
+    let annotation = PdfLinkAnnotation(rect).SetAction(PdfAction.CreateURI(uri))
+    pdf.GetPage(1).AddAnnotation(annotation) |> ignore
+
+    doc.Close()
+    output.ToArray()
+
+/// A page carrying both a QR code and a separate plain-text URL, so a test
+/// can assert that `scan` merges both detectors' results.
+let buildQrAndText (payload: string) (text: string) (qrLeft, qrBottom) size (textLeft, textBottom) (width: float32) : byte[] =
+    let output = new MemoryStream()
+    let writer = new PdfWriter(output)
+    writer.SetCloseStream(false)
+    let pdf = new PdfDocument(writer)
+    let doc = new Document(pdf, PageSize.LETTER)
+    let data = iText.IO.Image.ImageDataFactory.Create(qrImage payload 600 Crisp)
+
+    Image(data).SetFixedPosition(1, qrLeft, qrBottom, UnitValue.CreatePointValue size) |> doc.Add |> ignore
+
+    Paragraph(text).SetFixedPosition(textLeft, textBottom, UnitValue.CreatePointValue width)
+    |> doc.Add
+    |> ignore
+
+    doc.Close()
     output.ToArray()

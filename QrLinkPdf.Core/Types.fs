@@ -2,14 +2,15 @@ namespace QrLinkPdf
 
 open System
 
-/// A QR code located on a page, positioned in PDF user-space points with the
-/// origin at the bottom-left of the page - i.e. ready to drop straight into a
-/// link annotation.
+/// A hyperlink target found on a page - from a QR code or from plain URL
+/// text - positioned in PDF user-space points with the origin at the
+/// bottom-left of the page, i.e. ready to drop straight into a link
+/// annotation.
 type QrLink =
     { /// 1-based page number.
       PageNumber: int
-      /// The QR payload, after the scan's URI filter has accepted (and
-      /// possibly rewritten) it.
+      /// The QR payload or URL-shaped text run, after the scan's URI filter
+      /// has accepted (and possibly rewritten) it.
       Uri: string
       Left: float
       Bottom: float
@@ -29,8 +30,8 @@ type ScanOptions =
       /// from every level are merged. See `Scanner.findOnBitmap` for why a
       /// single pass isn't enough.
       Scales: float list
-      /// Decides whether a decoded payload is worth linking, and what URI to
-      /// link it to. Return `None` to skip the code.
+      /// Decides whether a decoded QR payload or candidate URL text run is
+      /// worth linking, and what URI to link it to. Return `None` to skip it.
       UriFilter: string -> string option
       /// Called with human-readable progress/diagnostic lines. Defaults to
       /// discarding them.
