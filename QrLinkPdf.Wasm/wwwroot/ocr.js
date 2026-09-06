@@ -32,6 +32,14 @@ window.qrLinkPdfOcr = {
   // and OCREngine.loadImage just wants {width, height, data} shaped like
   // ImageData, not an actual ImageData instance.
   recognize(bytes, width, height) {
+    // The engine is loaded eagerly at app startup (see Main.fs) and again,
+    // as a no-op safety net, right before a scan that wants it - but if it
+    // genuinely never loaded (a network hiccup, say), fail this one scan's
+    // OCR quietly rather than throwing on a null engine.
+    if (!this.engine) {
+      return [];
+    }
+
     const data = new Uint8ClampedArray(bytes);
     this.engine.loadImage({ width, height, data });
 
