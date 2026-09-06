@@ -147,6 +147,30 @@ The browser scans at 300 DPI over two pyramid levels rather than the CLI's 400
 DPI over four, which finds the same codes several times faster. Don't lower it
 further — at 200 DPI the test handout drops from 7 codes found to 5.
 
+### OCR in the browser
+
+The "Also try OCR" checkbox is backed by
+[tesseract-wasm](https://github.com/robertknight/tesseract-wasm)'s low-level,
+synchronous engine, run entirely locally the same way everything else here
+is — nothing is uploaded. For local dev, vendor its files and get English
+trained data once:
+
+```sh
+npm pack tesseract-wasm@0.11.0
+tar xzf tesseract-wasm-0.11.0.tgz
+mkdir -p QrLinkPdf.Wasm/wwwroot/tesseract-wasm
+cp package/dist/lib.js package/dist/tesseract-core*.wasm QrLinkPdf.Wasm/wwwroot/tesseract-wasm/
+rm -rf package tesseract-wasm-0.11.0.tgz
+
+mkdir -p QrLinkPdf.Wasm/wwwroot/tessdata
+curl -L -o QrLinkPdf.Wasm/wwwroot/tessdata/eng.traineddata \
+  https://github.com/tesseract-ocr/tessdata_fast/raw/main/eng.traineddata
+```
+
+Neither is checked in — same reasoning as the CLI's `tessdata/`. In the
+deployed app these are hosted on the Cloudflare asset project alongside the
+.NET runtime, not GitHub Pages.
+
 ## Building
 
 Requires the [.NET SDK](https://dotnet.microsoft.com/) (10.0+).
