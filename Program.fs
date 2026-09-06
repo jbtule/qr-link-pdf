@@ -82,13 +82,21 @@ let main argv =
                 MatchBareDomains = flags.BareDomains
                 Trace = if flags.Debug then eprintfn "[debug] %s" else ignore }
 
-        let links = PdfQrLinker.linkFile options inputPath outputPath
+        let result = PdfQrLinker.linkFile options inputPath outputPath
 
-        if links.IsEmpty then
+        if result.Links.IsEmpty && result.AlreadyLinked.IsEmpty then
             printfn "No QR codes or plain-text URLs worth linking were found."
         else
-            for link in links do
+            for link in result.Links do
                 printfn "Page %d: linking to %s" link.PageNumber link.Uri
 
-        printfn "Wrote %s (%d link%s added)" outputPath links.Length (if links.Length = 1 then "" else "s")
+            for already in result.AlreadyLinked do
+                printfn "Page %d: %s is already linked, left alone" already.PageNumber already.Uri
+
+        printfn
+            "Wrote %s (%d link%s added)"
+            outputPath
+            result.Links.Length
+            (if result.Links.Length = 1 then "" else "s")
+
         0

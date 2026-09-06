@@ -11,6 +11,7 @@ open Bolero
 open Bolero.Html
 open PDFtoImage
 open SkiaSharp
+open iText.Kernel.Pdf
 open QrLinkPdf
 
 /// IBrowserFile.OpenReadStream defaults to a 512 KB cap, which any real PDF
@@ -30,16 +31,37 @@ type State =
     /// File buffered (and a thumbnail attempted), waiting for Process.
     | Ready
     | Working of string
-    | Done of QrLink list
+    | Done of ScanResult
     | Failed of string
+
+/// Whether a finding got a new link annotation, or was already linked and
+/// left alone.
+type FindingStatus =
+    | Linked
+    | AlreadyLinked
+
+/// A lettered, positioned finding - a QR code or plain-text URL run - ready
+/// to be shown in the results list and, for page 1, drawn as a box over the
+/// thumbnail. The same letter identifies the same finding in both places.
+type Finding =
+    { Letter: char
+      PageNumber: int
+      Uri: string
+      Left: float
+      Bottom: float
+      Width: float
+      Height: float
+      Status: FindingStatus }
 
 type Model =
     { State: State
       FileName: string
       FileBytes: byte[] option
-      /// data:image/png;base64,... of the PDF's first page, or None if
-      /// rendering it failed - never blocks choosing/processing the file.
-      Thumbnail: string option
+      /// data:image/png;base64,... of the PDF's first page and that page's
+      /// point-size (for positioning finding overlays), or None if rendering
+      /// it failed - never blocks choosing/processing the file.
+      Thumbnail: (string * (float * float)) option
+      Findings: Finding list
       Output: byte[] option
       Log: string list
       OcrEnabled: bool
@@ -50,6 +72,7 @@ let initModel =
       FileName = ""
       FileBytes = None
       Thumbnail = None
+      Findings = []
       Output = None
       Log = []
       OcrEnabled = false
@@ -57,9 +80,9 @@ let initModel =
 
 type Message =
     | FileChosen of IBrowserFile
-    | Loaded of name: string * bytes: byte[] * thumbnail: string option
+    | Loaded of name: string * bytes: byte[] * thumbnail: (string * (float * float)) option
     | ProcessClicked
-    | Finished of output: byte[] * links: QrLink list * log: string list
+    | Finished of output: byte[] * result: ScanResult * log: string list
     | Errored of exn
     | Download
     | Reset
@@ -68,18 +91,45 @@ type Message =
     | SettingsLoaded of ocr: bool * bareDomains: bool
 
 /// Renders just the first page, small enough to be cheap but large enough to
-/// actually read once the CSS caps its display width. Failure (a corrupt
-/// PDF, zero pages) degrades to no thumbnail rather than blocking anything.
-let private tryRenderThumbnail (bytes: byte[]) : string option =
+/// actually read once the CSS caps its display width, plus that page's
+/// point-size (needed to position finding overlays over it). Failure (a
+/// corrupt PDF, zero pages) degrades to no thumbnail rather than blocking
+/// anything.
+let private tryRenderThumbnail (bytes: byte[]) : (string * (float * float)) option =
     try
+        use doc = new PdfDocument(new PdfReader(new MemoryStream(bytes)))
+        let size = doc.GetPage(1).GetPageSize()
+
         use bitmap =
             Conversion.ToImage(bytes, Index(0), options = RenderOptions(Dpi = 100, WithAnnotations = false, WithFormFill = true))
 
         use image = SKImage.FromBitmap(bitmap)
         use data = image.Encode(SKEncodedImageFormat.Png, 100)
-        Some("data:image/png;base64," + Convert.ToBase64String(data.ToArray()))
+
+        Some(
+            "data:image/png;base64," + Convert.ToBase64String(data.ToArray()),
+            (float (size.GetWidth()), float (size.GetHeight()))
+        )
     with _ ->
         None
+
+/// Letter every finding - newly linked and already-linked alike - across the
+/// whole document (page, then top-to-bottom on that page), so the same
+/// letter identifies the same finding in the results list and in the
+/// thumbnail overlay.
+let private letterFindings (result: ScanResult) : Finding list =
+    (result.Links |> List.map (fun l -> l, Linked))
+    @ (result.AlreadyLinked |> List.map (fun l -> l, AlreadyLinked))
+    |> List.sortBy (fun (l, _) -> l.PageNumber, -l.Bottom) // page, then top-to-bottom
+    |> List.mapi (fun i (l, status) ->
+        { Letter = char (int 'A' + i)
+          PageNumber = l.PageNumber
+          Uri = l.Uri
+          Left = l.Left
+          Bottom = l.Bottom
+          Width = l.Width
+          Height = l.Height
+          Status = status })
 
 /// The browser's file stream only supports async reads, and QrLinkPdf.Core
 /// reads synchronously - so buffer here first. It costs nothing: Core's
@@ -122,10 +172,10 @@ let private processFile
         let ocrEngine = if ocrEnabled then Some(Ocr.create jsInProcess) else None
         use input = new MemoryStream(bytes)
         use output = new MemoryStream()
-        let links = PdfQrLinker.link (browserOptions log.Add ocrEngine bareDomains) input output
+        let result = PdfQrLinker.link (browserOptions log.Add ocrEngine bareDomains) input output
         // link's PdfDocument is disposed by the time it returns, so the bytes
         // are complete here.
-        return output.ToArray(), links, List.ofSeq log
+        return output.ToArray(), result, List.ofSeq log
     }
 
 let private download (js: IJSRuntime) (fileName: string) (bytes: byte[]) =
@@ -162,6 +212,7 @@ let update (js: IJSRuntime) (jsInProcess: IJSInProcessRuntime) message model =
             FileName = file.Name
             FileBytes = None
             Thumbnail = None
+            Findings = []
             Output = None
             Log = [] },
         Cmd.OfTask.either readFileAndThumbnail file Loaded Errored
@@ -181,9 +232,10 @@ let update (js: IJSRuntime) (jsInProcess: IJSInProcessRuntime) message model =
             { model with State = Working "Scanning..." },
             Cmd.OfTask.either (processFile js jsInProcess model.OcrEnabled model.BareDomainsEnabled) bytes Finished Errored
 
-    | Finished(output, links, log) ->
+    | Finished(output, result, log) ->
         { model with
-            State = Done links
+            State = Done result
+            Findings = letterFindings result
             Output = Some output
             Log = log },
         Cmd.none
@@ -214,32 +266,61 @@ let update (js: IJSRuntime) (jsInProcess: IJSInProcessRuntime) message model =
             BareDomainsEnabled = bareDomains },
         Cmd.none
 
-let private resultView links dispatch =
+let private findingsList (extraClass: string) (findings: Finding list) =
+    ul {
+        attr.``class`` (sprintf "links %s" extraClass)
+
+        forEach findings (fun f ->
+            li {
+                span {
+                    attr.``class`` "letter"
+                    string f.Letter
+                }
+
+                span {
+                    attr.``class`` "page"
+                    sprintf "Page %d" f.PageNumber
+                }
+
+                a {
+                    attr.href f.Uri
+                    attr.target "_blank"
+                    f.Uri
+                }
+            })
+    }
+
+let private resultView (result: ScanResult) (findings: Finding list) dispatch =
+    let linked = findings |> List.filter (fun f -> f.Status = Linked)
+    let alreadyLinked = findings |> List.filter (fun f -> f.Status = AlreadyLinked)
+
     div {
         attr.``class`` "result"
 
         p {
             attr.``class`` "count"
-            sprintf "Found %d clickable link%s to add." (List.length links) (if List.length links = 1 then "" else "s")
+            sprintf "Found %d clickable link%s to add." (List.length linked) (if List.length linked = 1 then "" else "s")
         }
 
-        ul {
-            attr.``class`` "links"
+        findingsList "linked" linked
 
-            forEach links (fun link ->
-                li {
-                    span {
-                        attr.``class`` "page"
-                        sprintf "Page %d" link.PageNumber
+        cond (List.isEmpty alreadyLinked)
+        <| function
+            | true -> empty ()
+            | false ->
+                div {
+                    attr.``class`` "already-linked-section"
+
+                    p {
+                        attr.``class`` "count"
+
+                        sprintf
+                            "%d already linked, left alone."
+                            (List.length alreadyLinked)
                     }
 
-                    a {
-                        attr.href link.Uri
-                        attr.target "_blank"
-                        link.Uri
-                    }
-                })
-        }
+                    findingsList "already-linked" alreadyLinked
+                }
 
         div {
             attr.``class`` "actions"
@@ -257,7 +338,7 @@ let private resultView links dispatch =
         }
     }
 
-let private statusView model dispatch =
+let private statusView (model: Model) dispatch =
     match model.State with
     | Idle
     | ReadingFile
@@ -281,7 +362,7 @@ let private statusView model dispatch =
             }
         }
 
-    | Done [] ->
+    | Done result when result.Links.IsEmpty && result.AlreadyLinked.IsEmpty ->
         div {
             attr.``class`` "result"
             p { "No QR codes or plain-text URLs worth linking were found." }
@@ -292,7 +373,7 @@ let private statusView model dispatch =
             }
         }
 
-    | Done links -> resultView links dispatch
+    | Done result -> resultView result model.Findings dispatch
 
 let private logView model =
     if List.isEmpty model.Log then
@@ -304,13 +385,45 @@ let private logView model =
             pre { String.concat "\n" model.Log }
         }
 
-let private thumbnailView model =
+/// Position a page-1 finding's PDF point-space rect (origin bottom-left) as
+/// a CSS-percentage box over the thumbnail (origin top-left) - purely from
+/// the page's point-size, so it scales with however large the <img> actually
+/// renders, no pixel dimensions needed.
+let private overlayStyle (pageWidthPt: float, pageHeightPt: float) (f: Finding) =
+    let leftPct = f.Left / pageWidthPt * 100.0
+    let topPct = (pageHeightPt - f.Bottom - f.Height) / pageHeightPt * 100.0
+    let widthPct = f.Width / pageWidthPt * 100.0
+    let heightPct = f.Height / pageHeightPt * 100.0
+    sprintf "left:%.2f%%;top:%.2f%%;width:%.2f%%;height:%.2f%%" leftPct topPct widthPct heightPct
+
+let private thumbnailView (model: Model) =
     match model.Thumbnail with
     | None -> empty ()
-    | Some src ->
+    | Some(src, pageSize) ->
         div {
             attr.``class`` "thumbnail"
-            img { attr.src src }
+
+            div {
+                attr.``class`` "thumbnail-frame"
+                img { attr.src src }
+
+                forEach (model.Findings |> List.filter (fun f -> f.PageNumber = 1)) (fun f ->
+                    div {
+                        attr.``class``
+                            (sprintf
+                                "finding-box %s"
+                                (match f.Status with
+                                 | Linked -> "linked"
+                                 | AlreadyLinked -> "already-linked"))
+
+                        attr.style (overlayStyle pageSize f)
+
+                        span {
+                            attr.``class`` "finding-letter"
+                            string f.Letter
+                        }
+                    })
+            }
         }
 
 let view model dispatch =

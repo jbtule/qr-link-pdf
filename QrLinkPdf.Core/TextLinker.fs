@@ -151,31 +151,6 @@ let private trimTrailingPunctuation (candidate: string) =
 
     trim candidate
 
-/// Rectangles of every existing link annotation on the page, so a candidate
-/// covering text that's already a live hyperlink can be skipped.
-let private existingLinkRects (page: PdfPage) =
-    page.GetAnnotations()
-    |> Seq.choose (function
-        | :? PdfLinkAnnotation as a -> Some(a.GetRectangle().ToRectangle())
-        | _ -> None)
-    |> List.ofSeq
-
-/// Same "do these plausibly refer to the same spot" convention as
-/// `Scanner.sameSpot` (>50% of the smaller box's area), expressed against
-/// iText's `Rectangle` instead of `SKRectI` - not worth unifying the two,
-/// since the rect types and origins differ.
-let private sameSpot (a: Rectangle) (b: Rectangle) =
-    if not (a.Overlaps(b)) then
-        false
-    else
-        let inter = a.GetIntersection(b)
-        let overlapArea = float (inter.GetWidth() * inter.GetHeight())
-        let smaller = min (float (a.GetWidth()) * float (a.GetHeight())) (float (b.GetWidth()) * float (b.GetHeight()))
-        smaller > 0.0 && overlapArea / smaller > 0.5
-
-let private overlapsExisting (existing: Rectangle list) (candidate: Rectangle) =
-    existing |> List.exists (sameSpot candidate)
-
 /// Real text and OCR can disagree noticeably on a word's exact vertical
 /// extent for the same visible line - real chunks use font-metric ascent/
 /// descent, OCR reports the tight ink bounding box of what it actually
@@ -221,72 +196,82 @@ let private dedupeBySpot (links: QrLink list) : QrLink list =
 
     List.ofSeq kept
 
-/// Find every URL-shaped run in `chunks` that isn't already a live
-/// hyperlink, and turn each into a `QrLink` ready to be annotated the same
-/// way a QR code is. Doesn't care whether the chunks came from real
-/// text-showing operators or from an OCR engine - both are just positioned
-/// runs of text by the time they get here.
-let private linkChunks (options: ScanOptions) (pageNumber: int) (existing: Rectangle list) (chunks: Chunk list) : QrLink list =
-    chunks
-    |> groupIntoLines
-    |> List.collect (fun line ->
-        let text, spans = reconstructLine line
-        let schemeMatches = urlPattern.Matches(text) |> Seq.cast<Match> |> List.ofSeq
+/// Find every URL-shaped run in `chunks`, split into those that aren't
+/// already a live hyperlink (ready to be annotated the same way a QR code
+/// is) and those that are (found, but left alone). Doesn't care whether the
+/// chunks came from real text-showing operators or from an OCR engine - both
+/// are just positioned runs of text by the time they get here.
+let private linkChunks
+    (options: ScanOptions)
+    (pageNumber: int)
+    (existing: Rectangle list)
+    (chunks: Chunk list)
+    : QrLink list * QrLink list =
+    let found =
+        chunks
+        |> groupIntoLines
+        |> List.collect (fun line ->
+            let text, spans = reconstructLine line
+            let schemeMatches = urlPattern.Matches(text) |> Seq.cast<Match> |> List.ofSeq
 
-        let overlapsScheme (m: Match) =
-            schemeMatches
-            |> List.exists (fun s -> m.Index < s.Index + s.Length && m.Index + m.Length > s.Index)
+            let overlapsScheme (m: Match) =
+                schemeMatches
+                |> List.exists (fun s -> m.Index < s.Index + s.Length && m.Index + m.Length > s.Index)
 
-        // Bare-domain matches that land on text a scheme match already
-        // covers are dropped rather than double-counted - matters when
-        // e.g. "https://qrco.de/trails-end" would otherwise also satisfy
-        // the bare-domain shape on its "qrco.de/trails-end" tail.
-        let bareDomainMatches =
-            if options.MatchBareDomains then
-                bareDomainPattern.Matches(text)
-                |> Seq.cast<Match>
-                |> Seq.filter (fun m -> not (overlapsScheme m) && isPlausibleDomain m)
-                |> List.ofSeq
-            else
-                []
+            // Bare-domain matches that land on text a scheme match already
+            // covers are dropped rather than double-counted - matters when
+            // e.g. "https://qrco.de/trails-end" would otherwise also satisfy
+            // the bare-domain shape on its "qrco.de/trails-end" tail.
+            let bareDomainMatches =
+                if options.MatchBareDomains then
+                    bareDomainPattern.Matches(text)
+                    |> Seq.cast<Match>
+                    |> Seq.filter (fun m -> not (overlapsScheme m) && isPlausibleDomain m)
+                    |> List.ofSeq
+                else
+                    []
 
-        // A scheme match's own text is already a valid absolute URI (or
-        // "www."-prefixed) for UriFilter to judge; a bare-domain match
-        // isn't, so it needs "https://" added before UriFilter sees it.
-        let candidates =
-            (schemeMatches |> List.map (fun m -> m, false))
-            @ (bareDomainMatches |> List.map (fun m -> m, true))
+            // A scheme match's own text is already a valid absolute URI (or
+            // "www."-prefixed) for UriFilter to judge; a bare-domain match
+            // isn't, so it needs "https://" added before UriFilter sees it.
+            let candidates =
+                (schemeMatches |> List.map (fun m -> m, false))
+                @ (bareDomainMatches |> List.map (fun m -> m, true))
 
-        [ for (m, needsScheme) in candidates do
-              let trimmed = trimTrailingPunctuation m.Value
-              let filterInput = if needsScheme then "https://" + trimmed else trimmed
+            [ for (m, needsScheme) in candidates do
+                  let trimmed = trimTrailingPunctuation m.Value
+                  let filterInput = if needsScheme then "https://" + trimmed else trimmed
 
-              if trimmed <> "" then
-                  match options.UriFilter filterInput with
-                  | None -> ()
-                  | Some uri ->
-                      let matchEnd = m.Index + trimmed.Length
+                  if trimmed <> "" then
+                      match options.UriFilter filterInput with
+                      | None -> ()
+                      | Some uri ->
+                          let matchEnd = m.Index + trimmed.Length
 
-                      let rects =
-                          spans
-                          |> List.choose (fun (s, e, chunk) -> if s < matchEnd && e > m.Index then Some chunk.Rect else None)
+                          let rects =
+                              spans
+                              |> List.choose (fun (s, e, chunk) -> if s < matchEnd && e > m.Index then Some chunk.Rect else None)
 
-                      match rects with
-                      | [] -> ()
-                      | rects ->
-                          let rect = Rectangle.GetCommonRectangle(Array.ofList rects)
+                          match rects with
+                          | [] -> ()
+                          | rects ->
+                              let rect = Rectangle.GetCommonRectangle(Array.ofList rects)
 
-                          yield
-                              { PageNumber = pageNumber
-                                Uri = uri
-                                Left = float (rect.GetLeft())
-                                Bottom = float (rect.GetBottom())
-                                Width = float (rect.GetWidth())
-                                Height = float (rect.GetHeight()) } ])
-    |> List.filter (fun link ->
-        let rect = Rectangle(float32 link.Left, float32 link.Bottom, float32 link.Width, float32 link.Height)
-        not (overlapsExisting existing rect))
-    |> dedupeBySpot
+                              yield
+                                  { PageNumber = pageNumber
+                                    Uri = uri
+                                    Left = float (rect.GetLeft())
+                                    Bottom = float (rect.GetBottom())
+                                    Width = float (rect.GetWidth())
+                                    Height = float (rect.GetHeight()) } ])
+
+    let linked, alreadyLinked =
+        found
+        |> List.partition (fun link ->
+            let rect = Rectangle(float32 link.Left, float32 link.Bottom, float32 link.Width, float32 link.Height)
+            not (ExistingLinks.overlapsAny existing rect))
+
+    dedupeBySpot linked, dedupeBySpot alreadyLinked
 
 /// Rasterize just this one page and run `engine` over it, converting each
 /// OCR'd word into a `Chunk` in PDF point-space so it can go through the
@@ -328,11 +313,11 @@ let private ocrChunks
 /// no matter how it's done; a "run OCR only if nothing else was found"
 /// trigger misses exactly that case, which is common enough in practice
 /// (confirmed against a real flyer) that it isn't worth the false economy.
-let findOnPage (options: ScanOptions) (pdfBytes: byte[]) (doc: PdfDocument) (pageNumber: int) : QrLink list =
+let findOnPage (options: ScanOptions) (pdfBytes: byte[]) (doc: PdfDocument) (pageNumber: int) : QrLink list * QrLink list =
     let page = doc.GetPage(pageNumber)
     let listener = ChunkListener()
     PdfCanvasProcessor(listener).ProcessPageContent(page)
-    let existing = existingLinkRects page
+    let existing = ExistingLinks.rects page
     let realChunks = List.ofSeq listener.Chunks
 
     let ocrChunksFound =
@@ -345,6 +330,10 @@ let findOnPage (options: ScanOptions) (pdfBytes: byte[]) (doc: PdfDocument) (pag
 
     let chunks = realChunks @ ocrChunksFound
 
-    let found = linkChunks options pageNumber existing chunks
-    options.Trace(sprintf "  page %d text: found %d URL(s)" pageNumber (List.length found))
-    found
+    let linked, alreadyLinked = linkChunks options pageNumber existing chunks
+    options.Trace(sprintf "  page %d text: found %d URL(s)" pageNumber (List.length linked))
+
+    for l in alreadyLinked do
+        options.Trace(sprintf "  page %d text: %s already linked, skipping" pageNumber l.Uri)
+
+    linked, alreadyLinked

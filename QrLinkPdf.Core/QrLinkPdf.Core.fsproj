@@ -10,6 +10,7 @@
     <Compile Include="Types.fs" />
     <Compile Include="Scanner.fs" />
     <Compile Include="Geometry.fs" />
+    <Compile Include="ExistingLinks.fs" />
     <Compile Include="TextLinker.fs" />
     <Compile Include="PdfQrLinker.fs" />
   </ItemGroup>

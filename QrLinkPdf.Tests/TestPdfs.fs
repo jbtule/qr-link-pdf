@@ -283,6 +283,31 @@ let blankPageWithExistingLink (pageSize: PageSize) (uri: string) (rect: Rectangl
     pdf.Close()
     output.ToArray()
 
+/// Like `build`, but `alreadyLinked` names which of `placements` (by its
+/// payload) already has a live link annotation covering it - for proving the
+/// QR path skips a code that's already linked, the same as the text path
+/// does.
+let buildWithExistingLink (placements: Placement list) (alreadyLinked: string) : byte[] =
+    let output = new MemoryStream()
+    let writer = new PdfWriter(output)
+    writer.SetCloseStream(false)
+    let pdf = new PdfDocument(writer)
+    let doc = new Document(pdf, PageSize.LETTER)
+
+    doc.Add(Paragraph("Generated test page 1")) |> ignore
+
+    for p in placements do
+        let data = iText.IO.Image.ImageDataFactory.Create(qrImage p.Payload 600 p.Degradation)
+        Image(data).SetFixedPosition(1, p.Left, p.Bottom, UnitValue.CreatePointValue p.Size) |> doc.Add |> ignore
+
+    let target = placements |> List.find (fun p -> p.Payload = alreadyLinked)
+    let rect = Rectangle(target.Left, target.Bottom, target.Size, target.Size)
+    let annotation = PdfLinkAnnotation(rect).SetAction(PdfAction.CreateURI(alreadyLinked))
+    pdf.GetPage(1).AddAnnotation(annotation) |> ignore
+
+    doc.Close()
+    output.ToArray()
+
 /// A page carrying both a QR code and a separate plain-text URL, so a test
 /// can assert that `scan` merges both detectors' results.
 let buildQrAndText (payload: string) (text: string) (qrLeft, qrBottom) size (textLeft, textBottom) (width: float32) : byte[] =
