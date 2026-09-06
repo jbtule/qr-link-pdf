@@ -36,8 +36,22 @@ body {
     margin: 0 auto;
 }
 
+.page-header {
+    display: flex;
+    align-items: center;
+    gap: .75rem;
+    margin-bottom: .35rem;
+}
+
+.page-header .logo {
+    flex: 0 0 auto;
+    width: 48px;
+    height: 48px;
+    border-radius: 10px;
+}
+
 h1 {
-    margin: 0 0 .35rem;
+    margin: 0;
     font-size: 1.6rem;
     letter-spacing: -.015em;
 }

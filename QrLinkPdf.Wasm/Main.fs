@@ -526,7 +526,16 @@ let private thumbnailView (model: Model) dispatch =
 let view model dispatch =
     div {
         attr.``class`` "wrap"
-        h1 { "QR codes to clickable links" }
+
+        div {
+            attr.``class`` "page-header"
+            img {
+                attr.``class`` "logo"
+                attr.src "icon-192.png"
+                attr.alt ""
+            }
+            h1 { "QR codes to clickable links" }
+        }
 
         p {
             attr.``class`` "lede"
