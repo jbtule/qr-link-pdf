@@ -19,12 +19,12 @@ let private options =
 
 let private scan (pdf: byte[]) =
     use input = new MemoryStream(pdf)
-    PdfQrLinker.scan options input
+    (PdfQrLinker.scan options input).Links
 
 let private link (pdf: byte[]) =
     use input = new MemoryStream(pdf)
     use output = new MemoryStream()
-    let links = PdfQrLinker.link options input output
+    let links = (PdfQrLinker.link options input output).Links
     output.ToArray(), links
 
 let private uris links =
@@ -153,7 +153,7 @@ let ``honours a custom UriFilter`` () =
             UriFilter = fun text -> if text.StartsWith "https://example.com/" then Some text else None }
 
     use input = new MemoryStream(pdf)
-    let found = PdfQrLinker.scan onlyExample input
+    let found = (PdfQrLinker.scan onlyExample input).Links
 
     Assert.Equal(1, found.Length)
     Assert.Equal("https://example.com/keep", found.Head.Uri)
@@ -165,7 +165,7 @@ let ``a UriFilter can rewrite the target`` () =
             UriFilter = fun text -> Some(text + "?utm_source=qr") }
 
     use input = new MemoryStream(single "https://example.com/page")
-    let found = PdfQrLinker.scan tracked input
+    let found = (PdfQrLinker.scan tracked input).Links
     Assert.Equal("https://example.com/page?utm_source=qr", found.Head.Uri)
 
 // ---------------------------------------------------------------- geometry
@@ -293,13 +293,46 @@ let ``preserves page count and size`` () =
 
 [<Fact>]
 let ``the result can be linked again without duplicating annotations`` () =
-    // Scanning renders with WithAnnotations = false, so a second pass should
-    // find the same codes and not compound the links.
+    // A second pass should recognize the code it already linked and leave it
+    // alone, rather than adding a duplicate annotation over it.
     let once, _ = link (single "https://example.com/again")
-    let twice, links = link once
 
-    Assert.Equal(1, links.Length)
-    Assert.Equal(2, (annotations twice).Length)
+    use input = new MemoryStream(once)
+    use output = new MemoryStream()
+    let result = PdfQrLinker.link options input output
+    let twice = output.ToArray()
+
+    Assert.Empty(result.Links)
+    Assert.Equal(1, result.AlreadyLinked.Length)
+    Assert.Equal("https://example.com/again", result.AlreadyLinked.Head.Uri)
+    Assert.Equal(1, (annotations twice).Length)
+
+[<Fact>]
+let ``does not re-link a QR code that already has a link annotation`` () =
+    let pdf = buildWithExistingLink [ placement "https://example.com/already-linked-qr" ] "https://example.com/already-linked-qr"
+
+    use input = new MemoryStream(pdf)
+    let result = PdfQrLinker.scan options input
+
+    Assert.Empty(result.Links)
+    Assert.Equal(1, result.AlreadyLinked.Length)
+    Assert.Equal("https://example.com/already-linked-qr", result.AlreadyLinked.Head.Uri)
+
+[<Fact>]
+let ``reports an already-linked QR code separately from newly linked ones`` () =
+    let placements =
+        [ placement "https://example.com/fresh"
+          placement "https://example.com/stale" |> at (330f, 500f) ]
+
+    let pdf = buildWithExistingLink placements "https://example.com/stale"
+
+    use input = new MemoryStream(pdf)
+    let result = PdfQrLinker.scan options input
+
+    Assert.Equal(1, result.Links.Length)
+    Assert.Equal("https://example.com/fresh", result.Links.Head.Uri)
+    Assert.Equal(1, result.AlreadyLinked.Length)
+    Assert.Equal("https://example.com/stale", result.AlreadyLinked.Head.Uri)
 
 // ---------------------------------------------------------------- plumbing
 
@@ -322,7 +355,7 @@ let ``reads a forward-only stream`` () =
     use inner = new MemoryStream(bytes)
     use input = new BufferedStream(inner, 128)
 
-    let found = PdfQrLinker.scan options input
+    let found = (PdfQrLinker.scan options input).Links
     Assert.Equal(1, found.Length)
 
 [<Fact>]
@@ -340,7 +373,7 @@ let ``says nothing when Trace is left at its default`` () =
     // The default is `ignore`; this just pins that scanning is silent unless
     // asked, since the library has no business writing to the console.
     use input = new MemoryStream(single "https://example.com/quiet")
-    let found = PdfQrLinker.scan ScanOptions.Default input
+    let found = (PdfQrLinker.scan ScanOptions.Default input).Links
     Assert.Equal(1, found.Length)
 
 [<Fact>]
@@ -353,7 +386,7 @@ let ``linkFile round-trips through the filesystem`` () =
         let output = Path.Combine(directory, "out.pdf")
         File.WriteAllBytes(input, single "https://example.com/on-disk")
 
-        let links = PdfQrLinker.linkFile options input output
+        let links = (PdfQrLinker.linkFile options input output).Links
 
         Assert.Equal(1, links.Length)
         Assert.True(File.Exists output)
@@ -441,7 +474,7 @@ let ``honours a custom UriFilter for text-detected URLs too`` () =
             UriFilter = fun text -> if text.StartsWith "https://example.com/" then Some text else None }
 
     use input = new MemoryStream(pdf)
-    Assert.Empty(PdfQrLinker.scan onlyExample input)
+    Assert.Empty((PdfQrLinker.scan onlyExample input).Links)
 
 [<Fact>]
 let ``a text-derived link gets the same invisible-border annotation as a QR one`` () =
@@ -475,7 +508,7 @@ let ``finds a bare domain when opted in`` () =
     let bareDomains = { options with MatchBareDomains = true }
 
     use input = new MemoryStream(pdf)
-    let found = PdfQrLinker.scan bareDomains input
+    let found = (PdfQrLinker.scan bareDomains input).Links
 
     Assert.Equal(1, found.Length)
     Assert.Equal("https://qrco.de/trails-end", found.Head.Uri)
@@ -486,7 +519,7 @@ let ``does not mistake a decimal figure with a slash for a domain`` () =
     let bareDomains = { options with MatchBareDomains = true }
 
     use input = new MemoryStream(pdf)
-    Assert.Empty(PdfQrLinker.scan bareDomains input)
+    Assert.Empty((PdfQrLinker.scan bareDomains input).Links)
 
 [<Fact>]
 let ``does not mistake a version number with a slash for a domain`` () =
@@ -494,7 +527,7 @@ let ``does not mistake a version number with a slash for a domain`` () =
     let bareDomains = { options with MatchBareDomains = true }
 
     use input = new MemoryStream(pdf)
-    Assert.Empty(PdfQrLinker.scan bareDomains input)
+    Assert.Empty((PdfQrLinker.scan bareDomains input).Links)
 
 [<Fact>]
 let ``does not double-count a scheme URL as a bare domain too`` () =
@@ -502,7 +535,7 @@ let ``does not double-count a scheme URL as a bare domain too`` () =
     let bareDomains = { options with MatchBareDomains = true }
 
     use input = new MemoryStream(pdf)
-    let found = PdfQrLinker.scan bareDomains input
+    let found = (PdfQrLinker.scan bareDomains input).Links
 
     Assert.Equal(1, found.Length)
     Assert.Equal("https://qrco.de/trails-end", found.Head.Uri)
@@ -517,7 +550,7 @@ let ``honours a custom UriFilter for bare domains too`` () =
             UriFilter = fun text -> if text.StartsWith "https://example.com/" then Some text else None }
 
     use input = new MemoryStream(pdf)
-    Assert.Empty(PdfQrLinker.scan onlyExample input)
+    Assert.Empty((PdfQrLinker.scan onlyExample input).Links)
 
 // ------------------------------------------------------------- OCR fallback
 
@@ -538,7 +571,7 @@ let ``finds a URL via OCR on a page with no extractable text`` () =
             OcrEngine = Some(fun _ -> [ fakeWord ]) }
 
     use input = new MemoryStream(blankPage PageSize.LETTER)
-    let found = PdfQrLinker.scan withOcr input
+    let found = (PdfQrLinker.scan withOcr input).Links
 
     Assert.Equal(1, found.Length)
     Assert.Equal("https://example.com/ocr", found.Head.Uri)
@@ -558,7 +591,7 @@ let ``still runs OCR on a page that already has some real text`` () =
     let pdf = textParagraph "Just an ordinary sentence with no links in it." (72f, 700f) 400f
 
     use input = new MemoryStream(pdf)
-    let found = PdfQrLinker.scan withOcr input
+    let found = (PdfQrLinker.scan withOcr input).Links
 
     Assert.Equal(1, found.Length)
     Assert.Equal("https://example.com/ocr-found-it", found.Head.Uri)
@@ -575,7 +608,7 @@ let ``skips OCR'd text that already has a link annotation`` () =
             OcrEngine = Some(fun _ -> [ { Text = "https://example.com/already-linked"; Box = SKRectI(100, 100, 500, 140) } ]) }
 
     use input = new MemoryStream(pdf)
-    Assert.Empty(PdfQrLinker.scan withOcr input)
+    Assert.Empty((PdfQrLinker.scan withOcr input).Links)
 
 [<Fact>]
 let ``an OCR-derived link gets annotated like any other`` () =
@@ -585,7 +618,7 @@ let ``an OCR-derived link gets annotated like any other`` () =
 
     use input = new MemoryStream(blankPage PageSize.LETTER)
     use output = new MemoryStream()
-    let links = PdfQrLinker.link withOcr input output
+    let links = (PdfQrLinker.link withOcr input output).Links
 
     Assert.Equal(1, links.Length)
     Assert.Equal<string list>([ "https://example.com/ocr-linked" ], annotations (output.ToArray()) |> List.map (fun (_, u, _) -> u))
@@ -603,7 +636,7 @@ let ``does not duplicate a URL that OCR reports right next to where real text fo
     let pdf = textParagraph "Visit https://example.com/both-sources today." (72f, 700f) 400f
 
     use probeInput = new MemoryStream(pdf)
-    let real = (PdfQrLinker.scan options probeInput).Head
+    let real = (PdfQrLinker.scan options probeInput).Links.Head
 
     let fakeEngine (bitmap: SKBitmap) : OcrWord list =
         let pageHeight = 792.0
@@ -623,6 +656,6 @@ let ``does not duplicate a URL that OCR reports right next to where real text fo
     let withOcr = { options with OcrEngine = Some fakeEngine }
 
     use input = new MemoryStream(pdf)
-    let found = PdfQrLinker.scan withOcr input
+    let found = (PdfQrLinker.scan withOcr input).Links
 
     Assert.Equal(1, found.Length)

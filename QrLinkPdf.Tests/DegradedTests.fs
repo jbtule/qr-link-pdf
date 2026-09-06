@@ -14,7 +14,7 @@ open QrLinkPdf.Tests.TestPdfs
 
 let private atDpi scales (pdf: byte[]) =
     use input = new MemoryStream(pdf)
-    PdfQrLinker.scan { ScanOptions.Default with Dpi = 200; Scales = scales } input
+    (PdfQrLinker.scan { ScanOptions.Default with Dpi = 200; Scales = scales } input).Links
 
 /// One scan at full size - what the pyramid collapses to if someone decides
 /// the extra levels aren't worth it.
@@ -120,6 +120,6 @@ let ``the interactive scan finds everything the default scan does`` () =
         let expected = (atDpi ScanOptions.Default.Scales pdf).Length
 
         use input = new MemoryStream(pdf)
-        let actual = (PdfQrLinker.scan ScanOptions.Interactive input).Length
+        let actual = (PdfQrLinker.scan ScanOptions.Interactive input).Links.Length
 
         Assert.True(actual >= expected, sprintf "%s: Default found %d, Interactive found %d" name expected actual)

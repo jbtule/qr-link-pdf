@@ -21,6 +21,10 @@ type QrLink =
     member this.Right = this.Left + this.Width
     member this.Top = this.Bottom + this.Height
 
+/// What a scan found: what got (or would get) a new link annotation, and
+/// what was already linked and left alone.
+type ScanResult = { Links: QrLink list; AlreadyLinked: QrLink list }
+
 /// One word OCR found on a page, in the rasterized bitmap's pixel space
 /// (origin top-left) - the same space Scanner.DecodedCode already uses, so
 /// it flows through the same pixel-to-point conversion.

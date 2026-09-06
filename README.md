@@ -98,19 +98,25 @@ open QrLinkPdf
 
 // Find the linkable QR codes and URL text without modifying anything.
 use input = File.OpenRead "flyer.pdf"
-let found = PdfQrLinker.scan ScanOptions.Default input
-for link in found do
+let result = PdfQrLinker.scan ScanOptions.Default input
+for link in result.Links do
     printfn "page %d: %s at (%f, %f)" link.PageNumber link.Uri link.Left link.Bottom
 
-// Or write an annotated copy, and get back the links that were added.
+// Or write an annotated copy, and get back what was added.
 use input = File.OpenRead "flyer.pdf"
 use output = File.Create "flyer-linked.pdf"
-let added = PdfQrLinker.link ScanOptions.Default input output
+let result = PdfQrLinker.link ScanOptions.Default input output
 ```
 
 `scan` and `link` read `input` to the end and leave both streams open, so the
 caller stays in charge of their lifetime. `PdfQrLinker.linkFile` is a
 file-path convenience wrapper over `link`.
+
+All three return a `ScanResult`: `Links` is what got (or would get) a new
+link annotation, `AlreadyLinked` is everything found that already sits under
+a live hyperlink and was left alone — a re-run over `link`'s own output
+finds the same codes and text again, but reports them as `AlreadyLinked`
+rather than annotating them a second time.
 
 Behaviour is tuned through `ScanOptions`:
 

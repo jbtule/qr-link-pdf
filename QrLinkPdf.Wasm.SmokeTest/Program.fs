@@ -40,7 +40,8 @@ let main _ =
 
         use input = new MemoryStream(pdf)
         use output = new MemoryStream()
-        let links = PdfQrLinker.link options input output
+        let result = PdfQrLinker.link options input output
+        let links = result.Links
         let linked = output.ToArray()
 
         // PDFium rasterized the page and ZXing decoded what it found.

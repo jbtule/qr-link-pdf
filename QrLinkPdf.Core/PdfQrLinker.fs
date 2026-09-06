@@ -18,8 +18,15 @@ let private pageSizes (doc: PdfDocument) =
     |> Map.ofList
 
 /// Rasterize every page and scan it for QR codes, translating each hit from
-/// the bitmap's pixel space into PDF points for the page it was found on.
-let private findQrLinks (options: ScanOptions) (pdfBytes: byte[]) (sizes: Map<int, float * float>) =
+/// the bitmap's pixel space into PDF points for the page it was found on, and
+/// splitting the hits into ones worth linking and ones that already have a
+/// live hyperlink over them.
+let private findQrLinks
+    (options: ScanOptions)
+    (pdfBytes: byte[])
+    (doc: PdfDocument)
+    (sizes: Map<int, float * float>)
+    : QrLink list * QrLink list =
     // WithFormFill draws AcroForm field appearances. Barcode form fields - the
     // kind Acrobat generates from a calculation script - live there, and
     // without this they are simply absent from the raster and undetectable.
@@ -27,40 +34,54 @@ let private findQrLinks (options: ScanOptions) (pdfBytes: byte[]) (sizes: Map<in
     // adds, so re-linking a file would find its own work.
     let renderOptions = RenderOptions(Dpi = options.Dpi, WithAnnotations = false, WithFormFill = true)
 
+    let linked = ResizeArray<QrLink>()
+    let alreadyLinked = ResizeArray<QrLink>()
+
     Conversion.ToImages(pdfBytes, options = renderOptions)
     |> Seq.indexed
-    |> Seq.collect (fun (i, bitmap) ->
+    |> Seq.iter (fun (i, bitmap) ->
         use bitmap = bitmap
         let pageNumber = i + 1
         let pageSize = sizes.[pageNumber]
+        let existing = ExistingLinks.rects (doc.GetPage(pageNumber))
 
         Scanner.findOnBitmap options bitmap
-        |> List.choose (fun code ->
+        |> List.iter (fun code ->
             match options.UriFilter code.Text with
-            | None -> None
+            | None -> ()
             | Some uri ->
                 let box = Geometry.pixelBoxToPoint pageSize (bitmap.Width, bitmap.Height) code.Box
 
-                Some
+                let link =
                     { PageNumber = pageNumber
                       Uri = uri
                       Left = box.Left
                       Bottom = box.Bottom
                       Width = box.Width
-                      Height = box.Height }))
-    |> List.ofSeq
+                      Height = box.Height }
+
+                let rect = Rectangle(float32 link.Left, float32 link.Bottom, float32 link.Width, float32 link.Height)
+
+                if ExistingLinks.overlapsAny existing rect then
+                    options.Trace(sprintf "  page %d: %s already linked, skipping" pageNumber uri)
+                    alreadyLinked.Add link
+                else
+                    linked.Add link))
+
+    List.ofSeq linked, List.ofSeq alreadyLinked
 
 /// Find every linkable QR code and every linkable run of plain URL text on
 /// every page of `doc`.
-let private findInBytes (options: ScanOptions) (pdfBytes: byte[]) (doc: PdfDocument) =
+let private findInBytes (options: ScanOptions) (pdfBytes: byte[]) (doc: PdfDocument) : ScanResult =
     let sizes = pageSizes doc
-    let qrLinks = findQrLinks options pdfBytes sizes
+    let qrLinked, qrAlreadyLinked = findQrLinks options pdfBytes doc sizes
 
-    let textLinks =
-        [ for pageNumber in 1 .. doc.GetNumberOfPages() do
-              yield! TextLinker.findOnPage options pdfBytes doc pageNumber ]
+    let textLinked, textAlreadyLinked =
+        [ for pageNumber in 1 .. doc.GetNumberOfPages() -> TextLinker.findOnPage options pdfBytes doc pageNumber ]
+        |> List.unzip
 
-    qrLinks @ textLinks
+    { Links = qrLinked @ List.concat textLinked
+      AlreadyLinked = qrAlreadyLinked @ List.concat textAlreadyLinked }
 
 let private readAll (input: Stream) =
     match input with
@@ -85,16 +106,17 @@ let private addLinkAnnotation (doc: PdfDocument) (link: QrLink) =
 /// Find every linkable QR code and plain URL text run in the PDF read from
 /// `input`, without modifying anything. The stream is read to the end but
 /// left open.
-let scan (options: ScanOptions) (input: Stream) : QrLink list =
+let scan (options: ScanOptions) (input: Stream) : ScanResult =
     let bytes = readAll input
     use doc = new PdfDocument(new PdfReader(new MemoryStream(bytes)))
     findInBytes options bytes doc
 
 /// Copy the PDF read from `input` to `output`, adding a clickable link
 /// annotation over every QR code and plain URL text run whose payload passes
-/// the URI filter and isn't already a live hyperlink, and return the links
-/// that were added. Both streams are left open.
-let link (options: ScanOptions) (input: Stream) (output: Stream) : QrLink list =
+/// the URI filter and isn't already a live hyperlink, and return what was
+/// linked and what was found already linked and left alone. Both streams are
+/// left open.
+let link (options: ScanOptions) (input: Stream) (output: Stream) : ScanResult =
     let bytes = readAll input
 
     use reader = new PdfReader(new MemoryStream(bytes))
@@ -102,15 +124,15 @@ let link (options: ScanOptions) (input: Stream) (output: Stream) : QrLink list =
     writer.SetCloseStream(false)
     use doc = new PdfDocument(reader, writer)
 
-    let links = findInBytes options bytes doc
+    let result = findInBytes options bytes doc
 
-    for l in links do
+    for l in result.Links do
         addLinkAnnotation doc l
 
-    links
+    result
 
 /// File-path convenience wrapper around `link`.
-let linkFile (options: ScanOptions) (inputPath: string) (outputPath: string) : QrLink list =
+let linkFile (options: ScanOptions) (inputPath: string) (outputPath: string) : ScanResult =
     use input = File.OpenRead(inputPath)
     use output = File.Create(outputPath)
     link options input output
