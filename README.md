@@ -32,7 +32,7 @@ the links were never live to begin with) becomes clickable on screen too.
    https://example.com today.`) — text that was never a live link. Any
    substring that's already covered by an existing link annotation is left
    alone, so re-running the tool never double-links the same text.
-5. Optionally (`QRLINK_OCR=1` on the CLI), **[Tesseract](https://github.com/tesseract-ocr/tesseract)**
+5. Optionally (`--ocr yes` on the CLI), **[Tesseract](https://github.com/tesseract-ocr/tesseract)**
    also runs OCR on the rasterized page and feeds what it finds through the
    same URL-matching logic — some PDF generators flatten body copy to vector
    outlines with no real text-showing operators at all, which step 4 can't
@@ -51,35 +51,40 @@ is left alone.
 ## Usage
 
 ```sh
-dotnet run -- <input.pdf> <output.pdf>
+dotnet run -- <input.pdf> [output.pdf] [--debug yes|no] [--ocr yes|no] [--bare-domains yes|no]
 ```
 
-Set `QRLINK_DEBUG=1` to log every QR code and text-detected URL candidate
-found on each page — including ones whose payload didn't pass the URL filter
-— along with its detected bounding box.
+`output.pdf` defaults to `<input>-linked.pdf` next to the input file if
+omitted — the same name the browser app's download already uses. Every flag
+defaults to `no` (the library's own default) if left out.
 
-Set `QRLINK_OCR=1` to also try OCR on pages with no extractable text at all —
-some PDF generators flatten body copy to vector outlines instead of real
-text, which no amount of smarter text extraction can see. This needs:
+- `--debug yes` logs every QR code and text-detected URL candidate found on
+  each page — including ones whose payload didn't pass the URL filter —
+  along with its detected bounding box.
+- `--ocr yes` also tries OCR on pages with no extractable text at all — some
+  PDF generators flatten body copy to vector outlines instead of real text,
+  which no amount of smarter text extraction can see. This needs:
 
-1. A real [Tesseract](https://github.com/tesseract-ocr/tesseract) install.
-   On Apple Silicon this is bundled automatically at build time — nothing to
-   do. Elsewhere, install it yourself: `brew install tesseract leptonica` on
-   Intel Mac, `apt install tesseract-ocr libtesseract-dev` on Linux, or
-   nothing on Windows (the .NET wrapper bundles its own DLLs there).
-2. English trained data next to the executable:
-   ```sh
-   mkdir -p tessdata
-   curl -L -o tessdata/eng.traineddata \
-     https://github.com/tesseract-ocr/tessdata_fast/raw/main/eng.traineddata
-   ```
+  1. A real [Tesseract](https://github.com/tesseract-ocr/tesseract) install.
+     On Apple Silicon this is bundled automatically at build time — nothing
+     to do. Elsewhere, install it yourself: `brew install tesseract
+     leptonica` on Intel Mac, `apt install tesseract-ocr libtesseract-dev`
+     on Linux, or nothing on Windows (the .NET wrapper bundles its own DLLs
+     there).
+  2. English trained data next to the executable:
+     ```sh
+     mkdir -p tessdata
+     curl -L -o tessdata/eng.traineddata \
+       https://github.com/tesseract-ocr/tessdata_fast/raw/main/eng.traineddata
+     ```
 
-If either is missing, `QRLINK_OCR=1` prints one line explaining why and the
-run continues without OCR rather than failing.
+  If either is missing, `--ocr yes` prints one line explaining why and the
+  run continues without OCR rather than failing.
+- `--bare-domains yes` also links plain text shaped like a bare domain and
+  path (`qrco.de/trails-end`), with no `https://` or `www.` to anchor on —
+  see `MatchBareDomains` below for why this is off by default.
 
-Set `QRLINK_BARE_DOMAINS=1` to also link plain text shaped like a bare domain
-and path (`qrco.de/trails-end`), with no `https://` or `www.` to anchor on —
-see `MatchBareDomains` below for why this is off by default.
+Example: `dotnet run -- flyer.pdf --ocr yes --bare-domains yes`.
 
 ## Library
 
@@ -115,8 +120,8 @@ Behaviour is tuned through `ScanOptions`:
 | `Scales` | `[1.0; 0.6; 0.4; 0.25]` | The scan pyramid: each page is decoded at every level and the results merged. |
 | `UriFilter` | absolute URIs, plus `www.` upgraded to https | Decides which payloads get linked, and to what — applied to both QR payloads and text-detected URL candidates. Return `None` to skip one. |
 | `MatchBareDomains` | `false` | Also link plain text shaped like a bare domain and path (`qrco.de/trails-end`), with no `https://` or `www.` to anchor on. Off by default — unlike the scheme-anchored case, this is a shape heuristic (a known-TLD check plus a required `/path`) with a small false-positive risk, e.g. a decimal figure or version number followed by a slash. |
-| `OcrEngine` | `None` | Recognizes text in a rasterized page bitmap, for pages with no real text-showing operators to extract. `None` disables OCR — every real implementation is platform-specific, so there's no built-in default; the CLI supplies one via `QRLINK_OCR=1`. |
-| `Trace` | `ignore` | Receives diagnostic lines (what the CLI's `QRLINK_DEBUG` hooks up to). |
+| `OcrEngine` | `None` | Recognizes text in a rasterized page bitmap, for pages with no real text-showing operators to extract. `None` disables OCR — every real implementation is platform-specific, so there's no built-in default; the CLI supplies one via `--ocr yes`. |
+| `Trace` | `ignore` | Receives diagnostic lines (what the CLI's `--debug yes` hooks up to). |
 
 ```fsharp
 // e.g. faster scanning, and only link your own domain
