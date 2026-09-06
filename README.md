@@ -77,6 +77,10 @@ text, which no amount of smarter text extraction can see. This needs:
 If either is missing, `QRLINK_OCR=1` prints one line explaining why and the
 run continues without OCR rather than failing.
 
+Set `QRLINK_BARE_DOMAINS=1` to also link plain text shaped like a bare domain
+and path (`qrco.de/trails-end`), with no `https://` or `www.` to anchor on —
+see `MatchBareDomains` below for why this is off by default.
+
 ## Library
 
 All of the work lives in **QrLinkPdf.Core**, which exposes a stream-in /

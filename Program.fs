@@ -25,9 +25,16 @@ let main argv =
             else
                 None
 
+        // Set QRLINK_BARE_DOMAINS=1 to also link plain text shaped like a
+        // bare domain and path (qrco.de/trails-end), with no https:// or
+        // www. to anchor on. Off by default: unlike the scheme-anchored
+        // case, this is a shape heuristic with a small false-positive risk.
+        let bareDomains = Environment.GetEnvironmentVariable("QRLINK_BARE_DOMAINS") = "1"
+
         let options =
             { ScanOptions.Default with
                 OcrEngine = ocrEngine
+                MatchBareDomains = bareDomains
                 Trace = if debug then eprintfn "[debug] %s" else ignore }
 
         let links = PdfQrLinker.linkFile options inputPath outputPath
