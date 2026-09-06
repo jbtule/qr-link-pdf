@@ -91,6 +91,11 @@ jobs:
           mkdir -p shell/_framework assets/_framework
 
           cp "$pub/app.css" "$pub/download.js" "$pub/ocr.js" shell/
+          # Icons/manifest need to be same-origin with the page - iOS reads
+          # apple-touch-icon.png relative to the page it's added from, and a
+          # browser's favicon/manifest requests are same-origin by default.
+          cp "$pub"/favicon.* "$pub/apple-touch-icon.png" "$pub/icon-192.png" "$pub/icon-512.png" \
+             "$pub/manifest.webmanifest" shell/
           # The bootstrap script is loaded by a <script> tag, not by
           # loadBootResource, so it has to sit next to the page.
           cp "$pub"/_framework/blazor.webassembly*.js shell/_framework/

@@ -1,0 +1,22 @@
+{
+    "name": "QR codes to clickable links",
+    "short_name": "QR Link PDF",
+    "description": "Turn QR codes and plain-text URLs in a PDF into real, clickable link annotations.",
+    "start_url": ".",
+    "scope": ".",
+    "display": "standalone",
+    "background_color": "#364757",
+    "theme_color": "#364757",
+    "icons": [
+        {
+            "src": "icon-192.png",
+            "sizes": "192x192",
+            "type": "image/png"
+        },
+        {
+            "src": "icon-512.png",
+            "sizes": "512x512",
+            "type": "image/png"
+        }
+    ]
+}
