@@ -3,39 +3,84 @@ module QrLinkPdf.Program
 open System
 open QrLinkPdf
 
+/// Every optional behavior as one yes/no flag, defaulting to the library's
+/// own default when omitted.
+type private Flags =
+    { Debug: bool
+      Ocr: bool
+      BareDomains: bool }
+
+let private defaultFlags = { Debug = false; Ocr = false; BareDomains = false }
+
+let private usage =
+    "Usage: QrLinkPdf <input.pdf> [output.pdf] [--debug yes|no] [--ocr yes|no] [--bare-domains yes|no]"
+
+let private parseYesNo (name: string) (value: string) =
+    match value.ToLowerInvariant() with
+    | "yes" -> Ok true
+    | "no" -> Ok false
+    | _ -> Error(sprintf "--%s must be 'yes' or 'no', got '%s'" name value)
+
+let rec private parseFlags (flags: Flags) args =
+    match args with
+    | [] -> Ok flags
+    | "--debug" :: v :: rest -> parseYesNo "debug" v |> Result.bind (fun b -> parseFlags { flags with Debug = b } rest)
+    | "--ocr" :: v :: rest -> parseYesNo "ocr" v |> Result.bind (fun b -> parseFlags { flags with Ocr = b } rest)
+    | "--bare-domains" :: v :: rest ->
+        parseYesNo "bare-domains" v
+        |> Result.bind (fun b -> parseFlags { flags with BareDomains = b } rest)
+    | unknown :: _ -> Error(sprintf "Unknown argument: %s" unknown)
+
+/// Positional paths (1 or 2) come before any flags (which all start with
+/// "--"), so split on that rather than a fixed-arity pattern match.
+let rec private splitPaths args =
+    match args with
+    | (a: string) :: rest when not (a.StartsWith "--") ->
+        let more, flags = splitPaths rest
+        a :: more, flags
+    | _ -> [], args
+
+/// Same "-linked.pdf" naming the browser app already downloads its result
+/// as, so a caller who doesn't care what it's called doesn't have to spell
+/// one out - placed next to the input rather than in the current directory,
+/// since a CLI run isn't scoped to "the download folder" the way a browser is.
+let private defaultOutputPath (inputPath: string) =
+    let dir = IO.Path.GetDirectoryName(inputPath)
+    let name = IO.Path.GetFileNameWithoutExtension(inputPath) + "-linked.pdf"
+    if String.IsNullOrEmpty dir then name else IO.Path.Combine(dir, name)
+
 [<EntryPoint>]
 let main argv =
-    match argv with
-    | [| inputPath; outputPath |] ->
-        // Set QRLINK_DEBUG=1 to log every QR code and text-detected URL
-        // candidate found per page before the URL filter is applied.
-        let debug = Environment.GetEnvironmentVariable("QRLINK_DEBUG") = "1"
+    let paths, flagArgs = splitPaths (List.ofArray argv)
 
-        // Set QRLINK_OCR=1 to also try OCR on pages with no extractable text
-        // at all - some PDF generators flatten body copy to vector outlines,
-        // which no text-extraction approach can see. Needs a real Tesseract
-        // install; see README for setup. Degrades to "off" if unavailable
-        // rather than failing the run.
-        let ocrRequested = Environment.GetEnvironmentVariable("QRLINK_OCR") = "1"
+    let resolvedPaths =
+        match paths with
+        | [ inputPath ] -> Ok(inputPath, defaultOutputPath inputPath)
+        | [ inputPath; outputPath ] -> Ok(inputPath, outputPath)
+        | _ -> Error "Expected 1 or 2 file paths."
 
+    let result =
+        resolvedPaths
+        |> Result.bind (fun paths -> parseFlags defaultFlags flagArgs |> Result.map (fun flags -> paths, flags))
+
+    match result with
+    | Error message ->
+        eprintfn "%s" message
+        eprintfn "%s" usage
+        1
+    | Ok((inputPath, outputPath), flags) ->
         let ocrEngine =
-            if ocrRequested then
+            if flags.Ocr then
                 let tessdataPath = IO.Path.Combine(AppContext.BaseDirectory, "tessdata")
                 Ocr.tryCreate tessdataPath
             else
                 None
 
-        // Set QRLINK_BARE_DOMAINS=1 to also link plain text shaped like a
-        // bare domain and path (qrco.de/trails-end), with no https:// or
-        // www. to anchor on. Off by default: unlike the scheme-anchored
-        // case, this is a shape heuristic with a small false-positive risk.
-        let bareDomains = Environment.GetEnvironmentVariable("QRLINK_BARE_DOMAINS") = "1"
-
         let options =
             { ScanOptions.Default with
                 OcrEngine = ocrEngine
-                MatchBareDomains = bareDomains
-                Trace = if debug then eprintfn "[debug] %s" else ignore }
+                MatchBareDomains = flags.BareDomains
+                Trace = if flags.Debug then eprintfn "[debug] %s" else ignore }
 
         let links = PdfQrLinker.linkFile options inputPath outputPath
 
@@ -47,6 +92,3 @@ let main argv =
 
         printfn "Wrote %s (%d link%s added)" outputPath links.Length (if links.Length = 1 then "" else "s")
         0
-    | _ ->
-        eprintfn "Usage: QrLinkPdf <input.pdf> <output.pdf>"
-        1

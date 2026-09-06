@@ -52,6 +52,33 @@ h1 {
     background: var(--panel);
 }
 
+.options {
+    display: flex;
+    flex-direction: column;
+    gap: .4rem;
+    margin-top: .9rem;
+    font-size: .92rem;
+}
+
+.options label {
+    display: flex;
+    align-items: baseline;
+    gap: .5rem;
+    cursor: pointer;
+}
+
+.thumbnail {
+    margin-top: 1.25rem;
+}
+
+.thumbnail img {
+    display: block;
+    max-width: 400px;
+    width: 100%;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+}
+
 .status {
     margin-top: 1.25rem;
     color: var(--muted);
