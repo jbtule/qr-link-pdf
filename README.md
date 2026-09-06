@@ -186,6 +186,17 @@ Neither is checked in — same reasoning as the CLI's `tessdata/`. In the
 deployed app these are hosted on the Cloudflare asset project alongside the
 .NET runtime, not GitHub Pages.
 
+### Icons
+
+The favicon, `apple-touch-icon.png` (iOS "Add to Home Screen"), and the
+`icon-192.png`/`icon-512.png` pair in `manifest.webmanifest` (Android/PWA
+"Add to Home Screen") are all generated from `graphics/icon-orig-file.png`
+by `graphics/make-icons.py`. Re-run it after changing the source image:
+
+```sh
+python3 graphics/make-icons.py
+```
+
 ## Building
 
 Requires the [.NET SDK](https://dotnet.microsoft.com/) (10.0+).
