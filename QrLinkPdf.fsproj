@@ -6,11 +6,58 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <Compile Include="Ocr.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="QrLinkPdf.Core/QrLinkPdf.Core.fsproj" />
   </ItemGroup>
+
+  <ItemGroup>
+    <!-- Pinned exactly: Ocr.fs hardcodes the native filenames this specific
+         version's (internal, so we can't reference them directly) loader
+         constants resolve to - "leptonica-1.82.0" and "tesseract50". Bumping
+         this needs re-checking those against the new version's source. -->
+    <PackageReference Include="Tesseract" Version="5.2.0" />
+    <!-- Third-party, prerelease, macOS Apple Silicon only - see Ocr.fs and
+         the CopyTesseractNativeForAppleSilicon target below for why. -->
+    <PackageReference
+      Include="Tesseract.runtime.osx_arm64"
+      Version="5.3.2-rc"
+      Condition="$([MSBuild]::IsOSPlatform('OSX')) and '$([System.Runtime.InteropServices.RuntimeInformation]::ProcessArchitecture)' == 'Arm64'" />
+  </ItemGroup>
+
+  <!-- Tesseract's own native-library loader only ships Windows binaries; on
+       Apple Silicon we hand it real ones ourselves (see Ocr.fs's
+       CustomSearchPath) sourced from Tesseract.runtime.osx_arm64. Runs after
+       Build so $(NuGetPackageRoot) has the package restored and $(OutDir)
+       exists.
+
+       Every file in that package's native folder gets copied, not just
+       leptonica/tesseract themselves - both declare @loader_path-relative
+       dependencies on their sibling libs (libpng, libjpeg, libarchive, ...),
+       so dlopen needs the whole set sitting next to whichever one it loads,
+       under their original names. The two renamed copies are then just
+       plain copies of two files already in that same directory, so their
+       own @loader_path lookups resolve exactly as if they'd never been
+       renamed. -->
+  <Target
+    Name="CopyTesseractNativeForAppleSilicon"
+    AfterTargets="Build"
+    Condition="$([MSBuild]::IsOSPlatform('OSX')) and '$([System.Runtime.InteropServices.RuntimeInformation]::ProcessArchitecture)' == 'Arm64'">
+    <ItemGroup>
+      <TesseractNativeAsset Include="$(NuGetPackageRoot)tesseract.runtime.osx_arm64\5.3.2-rc\runtimes\osx-arm64\native\*.dylib" />
+    </ItemGroup>
+    <!-- The "x64" segment isn't a mistake - the loader's CustomSearchPath
+         lookup always appends it, on every platform (see Ocr.fs). -->
+    <Copy SourceFiles="@(TesseractNativeAsset)" DestinationFolder="$(OutDir)tesseract-native\x64" />
+    <Copy
+      SourceFiles="$(NuGetPackageRoot)tesseract.runtime.osx_arm64\5.3.2-rc\runtimes\osx-arm64\native\libleptonica.dylib"
+      DestinationFiles="$(OutDir)tesseract-native\x64\libleptonica-1.82.0.dylib" />
+    <Copy
+      SourceFiles="$(NuGetPackageRoot)tesseract.runtime.osx_arm64\5.3.2-rc\runtimes\osx-arm64\native\libtesseract.dylib"
+      DestinationFiles="$(OutDir)tesseract-native\x64\libtesseract50.dylib" />
+  </Target>
 
 </Project>

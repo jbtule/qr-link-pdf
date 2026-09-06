@@ -164,20 +164,62 @@ let private existingLinkRects (page: PdfPage) =
 /// `Scanner.sameSpot` (>50% of the smaller box's area), expressed against
 /// iText's `Rectangle` instead of `SKRectI` - not worth unifying the two,
 /// since the rect types and origins differ.
+let private sameSpot (a: Rectangle) (b: Rectangle) =
+    if not (a.Overlaps(b)) then
+        false
+    else
+        let inter = a.GetIntersection(b)
+        let overlapArea = float (inter.GetWidth() * inter.GetHeight())
+        let smaller = min (float (a.GetWidth()) * float (a.GetHeight())) (float (b.GetWidth()) * float (b.GetHeight()))
+        smaller > 0.0 && overlapArea / smaller > 0.5
+
 let private overlapsExisting (existing: Rectangle list) (candidate: Rectangle) =
-    let overlapsOne (r: Rectangle) =
-        if not (candidate.Overlaps(r)) then
-            false
-        else
-            let inter = candidate.GetIntersection(r)
-            let overlapArea = float (inter.GetWidth() * inter.GetHeight())
+    existing |> List.exists (sameSpot candidate)
 
-            let smaller =
-                min (float (candidate.GetWidth()) * float (candidate.GetHeight())) (float (r.GetWidth()) * float (r.GetHeight()))
+/// Real text and OCR can disagree noticeably on a word's exact vertical
+/// extent for the same visible line - real chunks use font-metric ascent/
+/// descent, OCR reports the tight ink bounding box of what it actually
+/// recognized - close enough in practice to land a line-height apart with
+/// zero literal rectangle overlap, confirmed against a real document. So
+/// cross-source duplicate detection uses a looser rule than `sameSpot`:
+/// significant horizontal overlap, and vertical centres within one line
+/// height of each other.
+let private nearSameSpot (a: Rectangle) (b: Rectangle) =
+    let left = max (a.GetLeft()) (b.GetLeft())
+    let right = min (a.GetRight()) (b.GetRight())
+    let horizontalOverlap = max 0f (right - left)
+    let narrower = min (a.GetWidth()) (b.GetWidth())
 
-            smaller > 0.0 && overlapArea / smaller > 0.5
+    let centreY (r: Rectangle) = r.GetBottom() + r.GetHeight() / 2f
+    let lineHeight = max (a.GetHeight()) (b.GetHeight())
 
-    existing |> List.exists overlapsOne
+    narrower > 0f
+    && horizontalOverlap / narrower > 0.5f
+    && abs (centreY a - centreY b) < lineHeight
+
+/// Real text and OCR can both independently find the same visible text -
+/// OCR has no idea a region was already covered by a real text chunk, and
+/// `findOnPage` runs it unconditionally (see its doc comment), so the same
+/// URL can come back twice: once from each source. Collapse candidates that
+/// share a URI and occupy the same spot, keeping the first - real-text
+/// chunks are listed before OCR chunks in `findOnPage`, so this prefers the
+/// more precisely-positioned real-text rect whenever both exist.
+let private dedupeBySpot (links: QrLink list) : QrLink list =
+    let kept = ResizeArray<QrLink>()
+
+    for link in links do
+        let rect = Rectangle(float32 link.Left, float32 link.Bottom, float32 link.Width, float32 link.Height)
+
+        let isDuplicate =
+            kept
+            |> Seq.exists (fun k ->
+                k.Uri = link.Uri
+                && nearSameSpot rect (Rectangle(float32 k.Left, float32 k.Bottom, float32 k.Width, float32 k.Height)))
+
+        if not isDuplicate then
+            kept.Add link
+
+    List.ofSeq kept
 
 /// Find every URL-shaped run in `chunks` that isn't already a live
 /// hyperlink, and turn each into a `QrLink` ready to be annotated the same
@@ -244,6 +286,7 @@ let private linkChunks (options: ScanOptions) (pageNumber: int) (existing: Recta
     |> List.filter (fun link ->
         let rect = Rectangle(float32 link.Left, float32 link.Bottom, float32 link.Width, float32 link.Height)
         not (overlapsExisting existing rect))
+    |> dedupeBySpot
 
 /// Rasterize just this one page and run `engine` over it, converting each
 /// OCR'd word into a `Chunk` in PDF point-space so it can go through the
@@ -277,10 +320,14 @@ let private ocrChunks
 
 /// Find every URL-shaped run of plain text on `pageNumber` that isn't
 /// already a live hyperlink, and turn each into a `QrLink` ready to be
-/// annotated the same way a QR code is. Falls back to OCR (if
-/// `options.OcrEngine` is set) when the page has no real text-showing
-/// operators at all - some PDF generators flatten body copy to vector
-/// outlines, which are invisible to text extraction no matter how it's done.
+/// annotated the same way a QR code is. Also tries OCR (if
+/// `options.OcrEngine` is set) and merges its results in, unconditionally -
+/// not just when the page has zero real text. A page can have *some* real
+/// text (page numbers, a heading) while its body copy is flattened to
+/// vector outlines elsewhere on the same page, invisible to text extraction
+/// no matter how it's done; a "run OCR only if nothing else was found"
+/// trigger misses exactly that case, which is common enough in practice
+/// (confirmed against a real flyer) that it isn't worth the false economy.
 let findOnPage (options: ScanOptions) (pdfBytes: byte[]) (doc: PdfDocument) (pageNumber: int) : QrLink list =
     let page = doc.GetPage(pageNumber)
     let listener = ChunkListener()
@@ -288,13 +335,15 @@ let findOnPage (options: ScanOptions) (pdfBytes: byte[]) (doc: PdfDocument) (pag
     let existing = existingLinkRects page
     let realChunks = List.ofSeq listener.Chunks
 
-    let chunks =
-        match realChunks, options.OcrEngine with
-        | [], Some engine ->
-            options.Trace(sprintf "  page %d: no extractable text, trying OCR" pageNumber)
+    let ocrChunksFound =
+        match options.OcrEngine with
+        | Some engine ->
+            options.Trace(sprintf "  page %d: trying OCR" pageNumber)
             let size = page.GetPageSize()
             ocrChunks options engine pdfBytes (float (size.GetWidth()), float (size.GetHeight())) pageNumber
-        | chunks, _ -> chunks
+        | None -> []
+
+    let chunks = realChunks @ ocrChunksFound
 
     let found = linkChunks options pageNumber existing chunks
     options.Trace(sprintf "  page %d text: found %d URL(s)" pageNumber (List.length found))
