@@ -1,7 +1,9 @@
 # Builds the browser app and deploys it across two hosts:
 #
 #   GitHub Pages  - index.html, css, and the ~50 KB Blazor bootstrap (~65 KB)
-#   Cloudflare    - the .NET runtime, PDFium, Skia and every assembly (~27 MB)
+#   Cloudflare    - the .NET runtime, PDFium, Skia and every assembly (~27 MB),
+#                   plus tesseract-wasm and its English model for the OCR
+#                   checkbox (~7-8 MB), fetched on demand only when it's used
 #
 # The split exists because GitHub Pages only gzips and has a 100 GB/month soft
 # bandwidth limit, while Cloudflare serves static assets with brotli/zstd and no
@@ -58,6 +60,22 @@ jobs:
       - name: Smoke test WebAssembly
         run: ./smoke-wasm.sh
 
+      # Vendored for the browser's OCR checkbox (tesseract-wasm's low-level
+      # engine + English trained data), same as the local dev setup in the
+      # README - not checked in, fetched fresh here instead. Placed in
+      # wwwroot before Publish so it's picked up as a static web asset the
+      # same way app.css/download.js/ocr.js already are.
+      - name: Fetch OCR assets
+        run: |
+          set -euo pipefail
+          npm pack tesseract-wasm@0.11.0
+          tar xzf tesseract-wasm-0.11.0.tgz
+          mkdir -p QrLinkPdf.Wasm/wwwroot/tesseract-wasm QrLinkPdf.Wasm/wwwroot/tessdata
+          cp package/dist/lib.js package/dist/tesseract-core*.wasm QrLinkPdf.Wasm/wwwroot/tesseract-wasm/
+          rm -rf package tesseract-wasm-0.11.0.tgz
+          curl -sL -o QrLinkPdf.Wasm/wwwroot/tessdata/eng.traineddata \
+            https://github.com/tesseract-ocr/tessdata_fast/raw/main/eng.traineddata
+
       # No .br/.gz: Cloudflare compresses on the fly and GitHub Pages can't
       # serve precompressed files anyway. Saves ~20 MB per deploy.
       - name: Publish
@@ -72,13 +90,17 @@ jobs:
           pub=QrLinkPdf.Wasm/bin/Release/net10.0-browser/publish/wwwroot
           mkdir -p shell/_framework assets/_framework
 
-          cp "$pub/app.css" "$pub/download.js" shell/
+          cp "$pub/app.css" "$pub/download.js" "$pub/ocr.js" shell/
           # The bootstrap script is loaded by a <script> tag, not by
           # loadBootResource, so it has to sit next to the page.
           cp "$pub"/_framework/blazor.webassembly*.js shell/_framework/
 
           cp -R "$pub"/_framework/. assets/_framework/
           rm -f assets/_framework/blazor.webassembly*.js
+
+          # ocr.js resolves these relative to qrLinkPdfAssetBase itself (see
+          # its own comment), so they go on the asset host, not the shell.
+          cp -R "$pub/tesseract-wasm" "$pub/tessdata" assets/
 
           # Stamp the footer badge with the commit being deployed. Falls back
           # to the committed "dev" defaults when GITHUB_SHA is unset, which is
@@ -108,8 +130,14 @@ jobs:
 
           # Cross-origin fetches need this or the runtime never loads. Blazor
           # also verifies asset integrity, which requires a non-opaque response.
+          # ocr.js's dynamic import() and fetch() of these same-host paths
+          # need it too.
           cat > assets/_headers <<EOF
           /_framework/*
+            Access-Control-Allow-Origin: https://tools.tuley.name
+          /tesseract-wasm/*
+            Access-Control-Allow-Origin: https://tools.tuley.name
+          /tessdata/*
             Access-Control-Allow-Origin: https://tools.tuley.name
           EOF
 

@@ -257,6 +257,32 @@ let textWithExistingLink (text: string) (uri: string) (left, bottom) (width: flo
     doc.Close()
     output.ToArray()
 
+/// A single page with no real text content at all - not even the
+/// "Generated test page" caption `buildPages` adds. For OCR-fallback tests,
+/// which need a page with zero extractable text chunks to trigger on.
+let blankPage (pageSize: PageSize) : byte[] =
+    let output = new MemoryStream()
+    let writer = new PdfWriter(output)
+    writer.SetCloseStream(false)
+    let pdf = new PdfDocument(writer)
+    pdf.AddNewPage(pageSize) |> ignore
+    pdf.Close()
+    output.ToArray()
+
+/// Like `blankPage`, but with a real link annotation already on it - for
+/// proving the OCR fallback also skips text already covered by a live
+/// hyperlink, the same as the real-text path does.
+let blankPageWithExistingLink (pageSize: PageSize) (uri: string) (rect: Rectangle) : byte[] =
+    let output = new MemoryStream()
+    let writer = new PdfWriter(output)
+    writer.SetCloseStream(false)
+    let pdf = new PdfDocument(writer)
+    let page = pdf.AddNewPage(pageSize)
+    let annotation = PdfLinkAnnotation(rect).SetAction(PdfAction.CreateURI(uri))
+    page.AddAnnotation(annotation) |> ignore
+    pdf.Close()
+    output.ToArray()
+
 /// A page carrying both a QR code and a separate plain-text URL, so a test
 /// can assert that `scan` merges both detectors' results.
 let buildQrAndText (payload: string) (text: string) (qrLeft, qrBottom) size (textLeft, textBottom) (width: float32) : byte[] =

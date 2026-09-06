@@ -32,31 +32,22 @@ let private findQrLinks (options: ScanOptions) (pdfBytes: byte[]) (sizes: Map<in
     |> Seq.collect (fun (i, bitmap) ->
         use bitmap = bitmap
         let pageNumber = i + 1
-        let pageWidthPt, pageHeightPt = sizes.[pageNumber]
-        // Pixels-per-point on this render, so we can map bitmap coordinates
-        // back to the PDF's own coordinate space.
-        let scaleX = pageWidthPt / float bitmap.Width
-        let scaleY = pageHeightPt / float bitmap.Height
+        let pageSize = sizes.[pageNumber]
 
         Scanner.findOnBitmap options bitmap
         |> List.choose (fun code ->
             match options.UriFilter code.Text with
             | None -> None
             | Some uri ->
-                let left = float code.Box.Left * scaleX
-                let right = float code.Box.Right * scaleX
-                // Image Y grows downward from the top; PDF Y grows upward
-                // from the bottom, so flip here.
-                let top = pageHeightPt - float code.Box.Top * scaleY
-                let bottom = pageHeightPt - float code.Box.Bottom * scaleY
+                let box = Geometry.pixelBoxToPoint pageSize (bitmap.Width, bitmap.Height) code.Box
 
                 Some
                     { PageNumber = pageNumber
                       Uri = uri
-                      Left = left
-                      Bottom = bottom
-                      Width = right - left
-                      Height = top - bottom }))
+                      Left = box.Left
+                      Bottom = box.Bottom
+                      Width = box.Width
+                      Height = box.Height }))
     |> List.ofSeq
 
 /// Find every linkable QR code and every linkable run of plain URL text on
@@ -67,7 +58,7 @@ let private findInBytes (options: ScanOptions) (pdfBytes: byte[]) (doc: PdfDocum
 
     let textLinks =
         [ for pageNumber in 1 .. doc.GetNumberOfPages() do
-              yield! TextLinker.findOnPage options doc pageNumber ]
+              yield! TextLinker.findOnPage options pdfBytes doc pageNumber ]
 
     qrLinks @ textLinks
 

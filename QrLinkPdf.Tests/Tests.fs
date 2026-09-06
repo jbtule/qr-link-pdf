@@ -2,6 +2,7 @@ module QrLinkPdf.Tests.Tests
 
 open System
 open System.IO
+open SkiaSharp
 open Xunit
 open iText.Kernel.Geom
 open iText.Kernel.Pdf
@@ -517,3 +518,111 @@ let ``honours a custom UriFilter for bare domains too`` () =
 
     use input = new MemoryStream(pdf)
     Assert.Empty(PdfQrLinker.scan onlyExample input)
+
+// ------------------------------------------------------------- OCR fallback
+
+[<Fact>]
+let ``does nothing on a text-free page when no OcrEngine is set`` () =
+    // ScanOptions.OcrEngine defaults to None - this pins that a page with
+    // zero extractable text just comes back empty, not an error.
+    Assert.Empty(scan (blankPage PageSize.LETTER))
+
+[<Fact>]
+let ``finds a URL via OCR on a page with no extractable text`` () =
+    let fakeWord: OcrWord =
+        { Text = "https://example.com/ocr"
+          Box = SKRectI(100, 100, 500, 140) }
+
+    let withOcr =
+        { options with
+            OcrEngine = Some(fun _ -> [ fakeWord ]) }
+
+    use input = new MemoryStream(blankPage PageSize.LETTER)
+    let found = PdfQrLinker.scan withOcr input
+
+    Assert.Equal(1, found.Length)
+    Assert.Equal("https://example.com/ocr", found.Head.Uri)
+    Assert.InRange(found.Head.Left, 0.0, 612.0)
+    Assert.InRange(found.Head.Bottom, 0.0, 792.0)
+
+[<Fact>]
+let ``still runs OCR on a page that already has some real text`` () =
+    // A page can have a little real text (page numbers, a heading) while
+    // its body copy is flattened to vector outlines elsewhere on the same
+    // page - a "skip OCR if anything was found" trigger would miss that
+    // real-world case, so OCR always runs when an engine is supplied.
+    let withOcr =
+        { options with
+            OcrEngine = Some(fun _ -> [ { Text = "https://example.com/ocr-found-it"; Box = SKRectI(100, 100, 500, 140) } ]) }
+
+    let pdf = textParagraph "Just an ordinary sentence with no links in it." (72f, 700f) 400f
+
+    use input = new MemoryStream(pdf)
+    let found = PdfQrLinker.scan withOcr input
+
+    Assert.Equal(1, found.Length)
+    Assert.Equal("https://example.com/ocr-found-it", found.Head.Uri)
+
+[<Fact>]
+let ``skips OCR'd text that already has a link annotation`` () =
+    // The existing annotation covers the whole page, so it overlaps
+    // whatever pixel box the fake engine reports regardless of the exact
+    // pixel-to-point conversion.
+    let pdf = blankPageWithExistingLink PageSize.LETTER "https://example.com/already-linked" (Rectangle(0f, 0f, 612f, 792f))
+
+    let withOcr =
+        { options with
+            OcrEngine = Some(fun _ -> [ { Text = "https://example.com/already-linked"; Box = SKRectI(100, 100, 500, 140) } ]) }
+
+    use input = new MemoryStream(pdf)
+    Assert.Empty(PdfQrLinker.scan withOcr input)
+
+[<Fact>]
+let ``an OCR-derived link gets annotated like any other`` () =
+    let withOcr =
+        { options with
+            OcrEngine = Some(fun _ -> [ { Text = "https://example.com/ocr-linked"; Box = SKRectI(100, 100, 500, 140) } ]) }
+
+    use input = new MemoryStream(blankPage PageSize.LETTER)
+    use output = new MemoryStream()
+    let links = PdfQrLinker.link withOcr input output
+
+    Assert.Equal(1, links.Length)
+    Assert.Equal<string list>([ "https://example.com/ocr-linked" ], annotations (output.ToArray()) |> List.map (fun (_, u, _) -> u))
+
+[<Fact>]
+let ``does not duplicate a URL that OCR reports right next to where real text found it`` () =
+    // Real text and OCR can disagree on a word's exact vertical extent for
+    // the same visible line - font-metric ascent/descent vs OCR's tight ink
+    // bounding box - closely enough to land with zero literal rectangle
+    // overlap. Confirmed against a real document, where this showed up as
+    // the same URL linked twice. Learn where real-text extraction actually
+    // found it, then have a fake OCR engine report the same URL shifted
+    // down by less than one line height - the near-miss shape that
+    // triggered it - and confirm only one link survives.
+    let pdf = textParagraph "Visit https://example.com/both-sources today." (72f, 700f) 400f
+
+    use probeInput = new MemoryStream(pdf)
+    let real = (PdfQrLinker.scan options probeInput).Head
+
+    let fakeEngine (bitmap: SKBitmap) : OcrWord list =
+        let pageHeight = 792.0
+        let toPixelX (x: float) = int (x * float bitmap.Width / 612.0)
+        let toPixelY (y: float) = int ((pageHeight - y) * float bitmap.Height / pageHeight)
+        let shift = real.Height * 0.5
+
+        [ { Text = real.Uri
+            Box =
+              SKRectI(
+                  toPixelX real.Left,
+                  toPixelY (real.Top - shift),
+                  toPixelX real.Right,
+                  toPixelY (real.Bottom - shift)
+              ) } ]
+
+    let withOcr = { options with OcrEngine = Some fakeEngine }
+
+    use input = new MemoryStream(pdf)
+    let found = PdfQrLinker.scan withOcr input
+
+    Assert.Equal(1, found.Length)

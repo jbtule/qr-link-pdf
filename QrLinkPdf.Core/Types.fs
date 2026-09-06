@@ -1,6 +1,7 @@
 namespace QrLinkPdf
 
 open System
+open SkiaSharp
 
 /// A hyperlink target found on a page - from a QR code or from plain URL
 /// text - positioned in PDF user-space points with the origin at the
@@ -19,6 +20,11 @@ type QrLink =
 
     member this.Right = this.Left + this.Width
     member this.Top = this.Bottom + this.Height
+
+/// One word OCR found on a page, in the rasterized bitmap's pixel space
+/// (origin top-left) - the same space Scanner.DecodedCode already uses, so
+/// it flows through the same pixel-to-point conversion.
+type OcrWord = { Text: string; Box: SKRectI }
 
 /// Tuning knobs for a scan. Start from `ScanOptions.Default` and override
 /// what you need.
@@ -41,6 +47,13 @@ type ScanOptions =
       /// figure that happens to end in a real TLD and is followed by a slash
       /// could get linked. See `TextLinker` for the exact rule.
       MatchBareDomains: bool
+      /// Recognizes text in a rasterized page bitmap, for pages with no real
+      /// text-showing operators to extract (see TextLinker's OCR fallback).
+      /// None (the default) disables OCR entirely - there's no
+      /// engine-agnostic default to offer, since every real implementation
+      /// is platform-specific: a native Tesseract engine on desktop, JS
+      /// interop with a WASM OCR engine in the browser. Supply one to opt in.
+      OcrEngine: (SKBitmap -> OcrWord list) option
       /// Called with human-readable progress/diagnostic lines. Defaults to
       /// discarding them.
       Trace: string -> unit }
@@ -68,6 +81,7 @@ module ScanOptions =
           Scales = [ 1.0; 0.6; 0.4; 0.25 ]
           UriFilter = defaultUriFilter
           MatchBareDomains = false
+          OcrEngine = None
           Trace = ignore }
 
     /// Tuned for somebody waiting on the result - about half the work of

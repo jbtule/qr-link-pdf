@@ -3,3 +3,9 @@ obj/
 *.user
 .vs/
 .DS_Store
+
+# OCR setup steps (README) fetch these locally; not checked in, same as the
+# CLI's tessdata/ directory.
+tessdata/
+QrLinkPdf.Wasm/wwwroot/tessdata/
+QrLinkPdf.Wasm/wwwroot/tesseract-wasm/
