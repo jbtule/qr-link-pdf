@@ -115,6 +115,26 @@ h1 {
     background: var(--already-linked);
 }
 
+.thumbnail-nav {
+    display: flex;
+    align-items: center;
+    gap: .75rem;
+    margin-top: .6rem;
+    max-width: 400px;
+    color: var(--muted);
+    font-size: .85rem;
+}
+
+.thumbnail-nav button {
+    padding: .3rem .6rem;
+    font-size: .82rem;
+}
+
+.thumbnail-nav button:disabled {
+    opacity: .4;
+    cursor: default;
+}
+
 .status {
     margin-top: 1.25rem;
     color: var(--muted);

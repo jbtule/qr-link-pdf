@@ -41,8 +41,9 @@ type FindingStatus =
     | AlreadyLinked
 
 /// A lettered, positioned finding - a QR code or plain-text URL run - ready
-/// to be shown in the results list and, for page 1, drawn as a box over the
-/// thumbnail. The same letter identifies the same finding in both places.
+/// to be shown in the results list and drawn as a box over its page's
+/// thumbnail once results are in. The same letter identifies the same
+/// finding in both places.
 type Finding =
     { Letter: char
       PageNumber: int
@@ -53,14 +54,29 @@ type Finding =
       Height: float
       Status: FindingStatus }
 
+/// One page's thumbnail, rendered after a scan for every page that has at
+/// least one finding - not the whole document, since a long PDF with a
+/// couple of QR codes on it shouldn't force paging through pages with
+/// nothing to see.
+type PageThumbnail =
+    { PageNumber: int
+      Src: string
+      PageSize: float * float }
+
 type Model =
     { State: State
       FileName: string
       FileBytes: byte[] option
       /// data:image/png;base64,... of the PDF's first page and that page's
       /// point-size (for positioning finding overlays), or None if rendering
-      /// it failed - never blocks choosing/processing the file.
+      /// it failed - never blocks choosing/processing the file. Shown before
+      /// Process is clicked, when there are no findings yet to page through.
       Thumbnail: (string * (float * float)) option
+      /// One thumbnail per page with a finding on it, populated once a scan
+      /// finishes. Paged through with CurrentThumbnail once there's more
+      /// than one.
+      ResultThumbnails: PageThumbnail list
+      CurrentThumbnail: int
       Findings: Finding list
       Output: byte[] option
       Log: string list
@@ -72,6 +88,8 @@ let initModel =
       FileName = ""
       FileBytes = None
       Thumbnail = None
+      ResultThumbnails = []
+      CurrentThumbnail = 0
       Findings = []
       Output = None
       Log = []
@@ -82,26 +100,28 @@ type Message =
     | FileChosen of IBrowserFile
     | Loaded of name: string * bytes: byte[] * thumbnail: (string * (float * float)) option
     | ProcessClicked
-    | Finished of output: byte[] * result: ScanResult * log: string list
+    | Finished of output: byte[] * result: ScanResult * thumbnails: PageThumbnail list * log: string list
     | Errored of exn
     | Download
     | Reset
     | OcrToggled of bool
     | BareDomainsToggled of bool
     | SettingsLoaded of ocr: bool * bareDomains: bool
+    | NextResultPage
+    | PrevResultPage
 
-/// Renders just the first page, small enough to be cheap but large enough to
-/// actually read once the CSS caps its display width, plus that page's
-/// point-size (needed to position finding overlays over it). Failure (a
-/// corrupt PDF, zero pages) degrades to no thumbnail rather than blocking
-/// anything.
-let private tryRenderThumbnail (bytes: byte[]) : (string * (float * float)) option =
+/// Renders one page (0-based index), small enough to be cheap but large
+/// enough to actually read once the CSS caps its display width, plus that
+/// page's point-size (needed to position finding overlays over it). Failure
+/// (a corrupt PDF, an out-of-range page) degrades to no thumbnail rather
+/// than blocking anything.
+let private tryRenderThumbnailForPage (bytes: byte[]) (pageIndex: int) : (string * (float * float)) option =
     try
         use doc = new PdfDocument(new PdfReader(new MemoryStream(bytes)))
-        let size = doc.GetPage(1).GetPageSize()
+        let size = doc.GetPage(pageIndex + 1).GetPageSize()
 
         use bitmap =
-            Conversion.ToImage(bytes, Index(0), options = RenderOptions(Dpi = 100, WithAnnotations = false, WithFormFill = true))
+            Conversion.ToImage(bytes, Index(pageIndex), options = RenderOptions(Dpi = 100, WithAnnotations = false, WithFormFill = true))
 
         use image = SKImage.FromBitmap(bitmap)
         use data = image.Encode(SKEncodedImageFormat.Png, 100)
@@ -112,6 +132,20 @@ let private tryRenderThumbnail (bytes: byte[]) : (string * (float * float)) opti
         )
     with _ ->
         None
+
+/// Thumbnails for exactly the pages that ended up with a finding on them -
+/// re-rasterizing here rather than threading bitmaps out of
+/// PdfQrLinker.scan/link keeps Core's API free of a browser-only display
+/// concern. Cheap enough to redo: the same low DPI as the pre-Process
+/// preview, and only for pages that actually have something to show.
+let private renderResultThumbnails (bytes: byte[]) (pageNumbers: int list) : PageThumbnail list =
+    pageNumbers
+    |> List.choose (fun pageNumber ->
+        tryRenderThumbnailForPage bytes (pageNumber - 1)
+        |> Option.map (fun (src, size) ->
+            { PageNumber = pageNumber
+              Src = src
+              PageSize = size }))
 
 /// Letter every finding - newly linked and already-linked alike - across the
 /// whole document (page, then top-to-bottom on that page), so the same
@@ -143,7 +177,7 @@ let private readFileAndThumbnail (file: IBrowserFile) =
         // Let the "Reading..." render land before rendering the thumbnail
         // blocks the only thread.
         do! Task.Yield()
-        return file.Name, bytes, tryRenderThumbnail bytes
+        return file.Name, bytes, tryRenderThumbnailForPage bytes 0
     }
 
 let private processFile
@@ -175,7 +209,13 @@ let private processFile
         let result = PdfQrLinker.link (browserOptions log.Add ocrEngine bareDomains) input output
         // link's PdfDocument is disposed by the time it returns, so the bytes
         // are complete here.
-        return output.ToArray(), result, List.ofSeq log
+        let output = output.ToArray()
+
+        let pagesWithFindings =
+            (result.Links @ result.AlreadyLinked) |> List.map (fun l -> l.PageNumber) |> List.distinct |> List.sort
+
+        let thumbnails = renderResultThumbnails bytes pagesWithFindings
+        return output, result, thumbnails, List.ofSeq log
     }
 
 let private download (js: IJSRuntime) (fileName: string) (bytes: byte[]) =
@@ -212,6 +252,8 @@ let update (js: IJSRuntime) (jsInProcess: IJSInProcessRuntime) message model =
             FileName = file.Name
             FileBytes = None
             Thumbnail = None
+            ResultThumbnails = []
+            CurrentThumbnail = 0
             Findings = []
             Output = None
             Log = [] },
@@ -232,10 +274,12 @@ let update (js: IJSRuntime) (jsInProcess: IJSInProcessRuntime) message model =
             { model with State = Working "Scanning..." },
             Cmd.OfTask.either (processFile js jsInProcess model.OcrEnabled model.BareDomainsEnabled) bytes Finished Errored
 
-    | Finished(output, result, log) ->
+    | Finished(output, result, thumbnails, log) ->
         { model with
             State = Done result
             Findings = letterFindings result
+            ResultThumbnails = thumbnails
+            CurrentThumbnail = 0
             Output = Some output
             Log = log },
         Cmd.none
@@ -265,6 +309,12 @@ let update (js: IJSRuntime) (jsInProcess: IJSInProcessRuntime) message model =
             OcrEnabled = ocr
             BareDomainsEnabled = bareDomains },
         Cmd.none
+
+    | NextResultPage ->
+        { model with CurrentThumbnail = min (model.CurrentThumbnail + 1) (List.length model.ResultThumbnails - 1) },
+        Cmd.none
+
+    | PrevResultPage -> { model with CurrentThumbnail = max (model.CurrentThumbnail - 1) 0 }, Cmd.none
 
 let private findingsList (extraClass: string) (findings: Finding list) =
     ul {
@@ -396,35 +446,82 @@ let private overlayStyle (pageWidthPt: float, pageHeightPt: float) (f: Finding) 
     let heightPct = f.Height / pageHeightPt * 100.0
     sprintf "left:%.2f%%;top:%.2f%%;width:%.2f%%;height:%.2f%%" leftPct topPct widthPct heightPct
 
-let private thumbnailView (model: Model) =
-    match model.Thumbnail with
-    | None -> empty ()
-    | Some(src, pageSize) ->
+let private findingBox (pageSize: float * float) (f: Finding) =
+    div {
+        attr.``class``
+            (sprintf
+                "finding-box %s"
+                (match f.Status with
+                 | Linked -> "linked"
+                 | AlreadyLinked -> "already-linked"))
+
+        attr.style (overlayStyle pageSize f)
+
+        span {
+            attr.``class`` "finding-letter"
+            string f.Letter
+        }
+    }
+
+/// Before Process is clicked: just the plain page-1 preview, no overlay
+/// (there are no findings yet). Once a scan finishes, this switches to a
+/// carousel over ResultThumbnails - one page per finding-bearing page,
+/// each with its findings boxed and lettered, paged with arrows when
+/// there's more than one.
+let private thumbnailView (model: Model) dispatch =
+    match model.State with
+    | Done _ when not (List.isEmpty model.ResultThumbnails) ->
+        let count = List.length model.ResultThumbnails
+        let index = model.CurrentThumbnail
+        let thumb = model.ResultThumbnails.[index]
+        let pageFindings = model.Findings |> List.filter (fun f -> f.PageNumber = thumb.PageNumber)
+
         div {
             attr.``class`` "thumbnail"
 
             div {
                 attr.``class`` "thumbnail-frame"
-                img { attr.src src }
-
-                forEach (model.Findings |> List.filter (fun f -> f.PageNumber = 1)) (fun f ->
-                    div {
-                        attr.``class``
-                            (sprintf
-                                "finding-box %s"
-                                (match f.Status with
-                                 | Linked -> "linked"
-                                 | AlreadyLinked -> "already-linked"))
-
-                        attr.style (overlayStyle pageSize f)
-
-                        span {
-                            attr.``class`` "finding-letter"
-                            string f.Letter
-                        }
-                    })
+                img { attr.src thumb.Src }
+                forEach pageFindings (findingBox thumb.PageSize)
             }
+
+            cond (count > 1)
+            <| function
+                | false -> empty ()
+                | true ->
+                    div {
+                        attr.``class`` "thumbnail-nav"
+
+                        button {
+                            attr.disabled (index = 0)
+                            on.click (fun _ -> dispatch PrevResultPage)
+                            "‹ Prev"
+                        }
+
+                        span { sprintf "Page %d (%d of %d)" thumb.PageNumber (index + 1) count }
+
+                        button {
+                            attr.disabled (index = count - 1)
+                            on.click (fun _ -> dispatch NextResultPage)
+                            "Next ›"
+                        }
+                    }
         }
+
+    | Done _ -> empty ()
+
+    | _ ->
+        match model.Thumbnail with
+        | None -> empty ()
+        | Some(src, _) ->
+            div {
+                attr.``class`` "thumbnail"
+
+                div {
+                    attr.``class`` "thumbnail-frame"
+                    img { attr.src src }
+                }
+            }
 
 let view model dispatch =
     div {
@@ -469,7 +566,7 @@ let view model dispatch =
             }
         }
 
-        thumbnailView model
+        thumbnailView model dispatch
 
         cond model.State
         <| function
