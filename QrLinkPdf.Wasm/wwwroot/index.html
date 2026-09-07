@@ -6,12 +6,12 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>qr-link-pdf</title>
     <base href="/" />
-    <link rel="stylesheet" href="app.css" />
+    <link rel="stylesheet" href="app.css?v=dev" />
 
     <link rel="icon" type="image/png" href="favicon.png" />
     <link rel="icon" href="favicon.ico" sizes="any" />
     <link rel="apple-touch-icon" href="apple-touch-icon.png" />
-    <link rel="manifest" href="manifest.webmanifest" />
+    <link rel="manifest" href="manifest.webmanifest?v=dev" />
     <meta name="theme-color" content="#364757" />
 </head>
 
@@ -51,20 +51,51 @@
         // GitHub Pages - which only gzips, and has a bandwidth budget - while
         // the ~25 MB of runtime is better off somewhere with brotli and no cap.
         window.qrLinkPdfAssetBase = "";
+        // The commit this page was built from - rewritten by the deploy
+        // workflow, same as the build badge below. Every same-origin file
+        // that isn't itself fingerprinted (app.css, download.js, ocr.js,
+        // blazor.webassembly.js, dotnet.js - unlike the assemblies, which
+        // Blazor names by content hash on its own) gets this appended as a
+        // cache-busting query string, so a new deploy is a genuinely new
+        // URL instead of relying on GitHub Pages'/Cloudflare's own caching
+        // (which browsers can and do hold onto well past what a fresh page
+        // around it would suggest - confirmed the hard way: the shell had
+        // visibly updated - a fresh build badge - while the page still ran
+        // stale logic underneath).
+        window.qrLinkPdfBuildVersion = "dev";
     </script>
-    <script src="download.js"></script>
-    <script src="ocr.js"></script>
-    <script src="_framework/blazor.webassembly.js" autostart="false"></script>
+    <script src="download.js?v=dev"></script>
+    <script src="ocr.js?v=dev"></script>
+    <script src="_framework/blazor.webassembly.js?v=dev" autostart="false"></script>
     <script>
         Blazor.start({
             loadBootResource: function (type, name, defaultUri, integrity) {
                 var base = window.qrLinkPdfAssetBase;
+                var v = window.qrLinkPdfBuildVersion;
+
+                if (type === 'dotnetjs') {
+                    // dotnet.js is the one boot resource whose own content
+                    // embeds the resource manifest - every other assembly's
+                    // fingerprinted filename - since it's the very first
+                    // thing loaded, before any manifest exists to look a
+                    // hash up from, .NET can't fingerprint it the way it
+                    // does everything else. That makes it the single most
+                    // important thing to cache-bust here: a stale cached
+                    // copy keeps the whole app pinned to an old manifest -
+                    // and therefore old assemblies - no matter how fresh
+                    // the page around it is. Busted with our own query
+                    // string rather than left to the (unhashed) filename
+                    // Blazor resolved, on top of whichever origin it's
+                    // coming from.
+                    var url = base ? base + defaultUri.substring(defaultUri.indexOf('_framework/')) : defaultUri;
+                    return url + '?v=' + v;
+                }
+
                 if (!base) {
                     return null; // same origin, default loading
                 }
 
                 switch (type) {
-                    case 'dotnetjs':
                     case 'dotnetwasm':
                     case 'timezonedata':
                     case 'assembly':
@@ -74,8 +105,6 @@
                         var index = defaultUri.indexOf('_framework/');
                         return index < 0 ? null : base + defaultUri.substring(index);
                     default:
-                        // Boot config and manifests stay put; they're tiny and
-                        // the loader wants them alongside the page.
                         return null;
                 }
             }

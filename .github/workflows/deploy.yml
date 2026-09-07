@@ -122,14 +122,24 @@ jobs:
           # same on a Mac as on the runner and can be dry-run locally.
           sed -e "s|<base href=\"/\" />|<base href=\"${BASE_HREF}\" />|" \
               -e "s|window.qrLinkPdfAssetBase = \"\";|window.qrLinkPdfAssetBase = \"${ASSET_BASE}\";|" \
+              -e "s|window.qrLinkPdfBuildVersion = \"dev\";|window.qrLinkPdfBuildVersion = \"${short}\";|" \
+              -e "s|?v=dev|?v=${short}|g" \
               -e "s|badge/build-dev-inactive|badge/build-${short}-007ec6|" \
               -e "s|qr-link-pdf/commits/main|qr-link-pdf/${commit}|" \
               "$pub/index.html" > shell/index.html
 
           # A sed that silently stops matching would ship a page claiming the
-          # wrong base path, asset host or build.
+          # wrong base path, asset host, build, or - worst of all silently -
+          # still pointing at unbusted URLs that ride GitHub Pages' cache.
           grep -q "${BASE_HREF}" shell/index.html
           grep -q "${ASSET_BASE}" shell/index.html
+          grep -q "window.qrLinkPdfBuildVersion = \"${short}\";" shell/index.html
+          # Only real deploys (GITHUB_SHA set, short != dev) need this - the
+          # ci-local.sh replay's "dev" fallback legitimately leaves ?v=dev in
+          # place, since short *is* "dev" there.
+          if [ "$short" != dev ]; then
+            ! grep -q "?v=dev" shell/index.html
+          fi
           grep -q "badge/build-${short}-" shell/index.html
           grep -q "qr-link-pdf/${commit}" shell/index.html
 
