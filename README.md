@@ -63,23 +63,20 @@ defaults to `no` (the library's own default) if left out.
   along with its detected bounding box.
 - `--ocr yes` also tries OCR on pages with no extractable text at all — some
   PDF generators flatten body copy to vector outlines instead of real text,
-  which no amount of smarter text extraction can see. This needs:
+  which no amount of smarter text extraction can see. Tesseract itself is
+  bundled automatically for win-x64/win-arm64/linux-x64/linux-arm64/osx-arm64
+  via [`Tesseract.CrossPlatform`](https://github.com/jbtule/tesseract-nuget-platforms)
+  — nothing to install. It still needs English trained data next to the
+  executable:
+  ```sh
+  mkdir -p tessdata
+  curl -L -o tessdata/eng.traineddata \
+    https://github.com/tesseract-ocr/tessdata_fast/raw/main/eng.traineddata
+  ```
 
-  1. A real [Tesseract](https://github.com/tesseract-ocr/tesseract) install.
-     On Apple Silicon this is bundled automatically at build time — nothing
-     to do. Elsewhere, install it yourself: `brew install tesseract
-     leptonica` on Intel Mac, `apt install tesseract-ocr libtesseract-dev`
-     on Linux, or nothing on Windows (the .NET wrapper bundles its own DLLs
-     there).
-  2. English trained data next to the executable:
-     ```sh
-     mkdir -p tessdata
-     curl -L -o tessdata/eng.traineddata \
-       https://github.com/tesseract-ocr/tessdata_fast/raw/main/eng.traineddata
-     ```
-
-  If either is missing, `--ocr yes` prints one line explaining why and the
-  run continues without OCR rather than failing.
+  If that's missing (or the platform isn't one of the five above), `--ocr yes`
+  prints one line explaining why and the run continues without OCR rather
+  than failing.
 - `--bare-domains yes` also links plain text shaped like a bare domain and
   path (`qrco.de/trails-end`), with no `https://` or `www.` to anchor on —
   see `MatchBareDomains` below for why this is off by default.
