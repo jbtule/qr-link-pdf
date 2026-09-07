@@ -265,13 +265,21 @@ let private linkChunks
                                     Width = float (rect.GetWidth())
                                     Height = float (rect.GetHeight()) } ])
 
-    let linked, alreadyLinked =
-        found
-        |> List.partition (fun link ->
-            let rect = Rectangle(float32 link.Left, float32 link.Bottom, float32 link.Width, float32 link.Height)
-            not (ExistingLinks.overlapsAny existing rect))
-
-    dedupeBySpot linked, dedupeBySpot alreadyLinked
+    // Dedupe real-text-vs-OCR duplicates *before* checking against existing
+    // annotations, not after: OCR's bounding box for the same visible text
+    // can land just far enough from a real-text chunk's more precise one
+    // that only one of the two clears the >50% overlap threshold against an
+    // existing annotation. Partitioning first would then split the same
+    // URL's two candidates across both buckets - the one that missed the
+    // overlap check surviving into `linked` and getting a genuinely
+    // duplicate annotation added right on top of the live one. Deduping
+    // first collapses them into a single candidate (preferring the
+    // real-text one - see dedupeBySpot) before that check ever runs, so
+    // there's only ever one fate to land in.
+    dedupeBySpot found
+    |> List.partition (fun link ->
+        let rect = Rectangle(float32 link.Left, float32 link.Bottom, float32 link.Width, float32 link.Height)
+        not (ExistingLinks.overlapsAny existing rect))
 
 /// Rasterize just this one page and run `engine` over it, converting each
 /// OCR'd word into a `Chunk` in PDF point-space so it can go through the

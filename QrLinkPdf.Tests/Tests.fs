@@ -659,3 +659,50 @@ let ``does not duplicate a URL that OCR reports right next to where real text fo
     let found = (PdfQrLinker.scan withOcr input).Links
 
     Assert.Equal(1, found.Length)
+
+[<Fact>]
+let ``does not add a duplicate annotation when OCR's near-miss escapes the overlap check that catches real text`` () =
+    // Regression test for a real-world duplicate: a URL already linked, with
+    // real text extraction correctly recognizing the overlap (existing rect
+    // vs its own precise rect clears the >50% threshold) while OCR's
+    // shifted-by-half-a-line-height rect for the *same* URL just barely
+    // misses that same threshold against the existing annotation. Partitioning
+    // each source's candidate independently against `existing` used to let
+    // OCR's near-miss slip into `Links` and get linked a second time, right
+    // on top of the live annotation, even though the real-text candidate for
+    // the identical URL correctly landed in `AlreadyLinked`.
+    let uri = "https://example.com/already-linked-both-sources"
+    let pdf = textWithExistingLink (sprintf "Visit %s today." uri) uri (72f, 700f) 400f
+
+    use probeInput = new MemoryStream(pdf)
+    let real = (PdfQrLinker.scan options probeInput).AlreadyLinked.Head
+
+    let fakeEngine (bitmap: SKBitmap) : OcrWord list =
+        let pageHeight = 792.0
+        let toPixelX (x: float) = int (x * float bitmap.Width / 612.0)
+        let toPixelY (y: float) = int ((pageHeight - y) * float bitmap.Height / pageHeight)
+        let shift = real.Height * 0.5
+
+        [ { Text = real.Uri
+            Box =
+              SKRectI(
+                  toPixelX real.Left,
+                  toPixelY (real.Top - shift),
+                  toPixelX real.Right,
+                  toPixelY (real.Bottom - shift)
+              ) } ]
+
+    let withOcr = { options with OcrEngine = Some fakeEngine }
+
+    use scanInput = new MemoryStream(pdf)
+    let result = PdfQrLinker.scan withOcr scanInput
+
+    Assert.Empty(result.Links)
+    Assert.Equal(1, result.AlreadyLinked.Length)
+
+    use linkInput = new MemoryStream(pdf)
+    use output = new MemoryStream()
+    let linked = PdfQrLinker.link withOcr linkInput output
+
+    Assert.Empty(linked.Links)
+    Assert.Equal(1, (annotations (output.ToArray())).Length)
