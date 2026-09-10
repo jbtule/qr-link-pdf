@@ -35,25 +35,6 @@ env:
   # GitHub Pages serves project sites under /<repo>/.
   BASE_HREF: /qr-link-pdf/
 
-# NOT MERGEABLE YET: QrLinkPdf.Core.fsproj currently pins the
-# 5.5.2.200-preview.52a768c build of Tesseract.CrossPlatform/Tesseract.Native/
-# Tesseract.Native.browser-wasm/Tesseract.CrossPlatform.SkiaSharp, which
-# isn't on nuget.org - restored locally via the gitignored ./NuGet.Config
-# pointing at .local-nuget-feed/ (see that file's own comment). This
-# workflow's restore has no such feed, so it will fail here until a real
-# release is published and QrLinkPdf.Core.fsproj's versions are bumped off
-# -preview.
-#
-# The actual functional blocker (a real bug, not just "unpublished") is
-# resolved: earlier previews shipped OCR-under-wasm with a real,
-# reproduced-and-confirmed regression - constructing TesseractEngine
-# tripped Blazor's global error banner on every use (see
-# jbtule/tesseract-nuget-platforms commit "Fix construction-order bug in
-# the wasm stderr-suppression fix", 52a768c's vendor/tesseract bump).
-# Verified fixed here: no leptonica stderr output, #blazor-error-ui stays
-# hidden, real OCR still succeeds, via QrLinkPdf.Wasm's actual call order
-# (build the engine once in Ocr.init, convert pixels later per scan) -
-# the exact pattern that exposed the bug in the first place.
 jobs:
   build:
     runs-on: ubuntu-latest

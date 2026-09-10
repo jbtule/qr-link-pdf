@@ -46,20 +46,22 @@
          TargetFramework/RuntimeIdentifier, the same mechanism
          Tesseract.Native.browser-wasm's buildTransitive target relies on.
 
-         PREVIEW 5.5.2.200-preview.52a768c, not yet on nuget.org - restored
-         from the local feed in ../NuGet.Config (gitignored; see its own
-         comment), from
-         https://github.com/jbtule/tesseract-nuget-platforms/actions/runs/34458024671. -->
-    <PackageReference Include="Tesseract.CrossPlatform" Version="5.5.2.200-preview.52a768c" />
-    <PackageReference Include="Tesseract.CrossPlatform.SkiaSharp" Version="5.5.2.200-preview.52a768c" />
+         5.5.2.200, the first release with browser-wasm/SkiaSharp support,
+         published to nuget.org from
+         https://github.com/jbtule/tesseract-nuget-platforms/actions/runs/34473940485
+         (its own Trusted Publishing policy needed a fix first - the
+         workflow initially failed with a token-exchange 401, policy
+         pointed at pack.yml instead of release.yml). -->
+    <PackageReference Include="Tesseract.CrossPlatform" Version="5.5.2.200" />
+    <PackageReference Include="Tesseract.CrossPlatform.SkiaSharp" Version="5.5.2.200" />
     <!-- Desktop native runtimes (win-x64/win-arm64/linux-x64/linux-arm64/
          osx-arm64) - a no-op for a browser-wasm consumer, since none of its
          runtime.<rid> packages have a matching RID there. -->
-    <PackageReference Include="Tesseract.Native" Version="5.5.2.200-preview.52a768c" />
+    <PackageReference Include="Tesseract.Native" Version="5.5.2.200" />
     <!-- Statically-linked browser-wasm native build - a no-op everywhere
          else, since its buildTransitive target is conditioned on
          $(RuntimeIdentifier) == 'browser-wasm'. -->
-    <PackageReference Include="Tesseract.Native.browser-wasm" Version="5.5.2.200-preview.52a768c" />
+    <PackageReference Include="Tesseract.Native.browser-wasm" Version="5.5.2.200" />
   </ItemGroup>
 
 </Project>
