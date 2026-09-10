@@ -3,6 +3,19 @@
   <PropertyGroup>
     <OutputType>Exe</OutputType>
     <TargetFramework>net10.0</TargetFramework>
+
+    <!-- Tesseract.Native's flat native asset is only copied for a
+         RID-targeted build/restore (see Tesseract.CrossPlatform's own
+         README: "a bare dotnet run/build with no RID context anywhere ...
+         won't have any native asset to find"). Pin to whatever RID the
+         current machine's SDK actually is, so a plain `dotnet run`/`dotnet
+         publish` (no explicit -r) still gets it - confirmed the hard way:
+         this appeared to work via plain `dotnet run` on macOS (which
+         apparently resolves an implicit RID when there's a single
+         matching desktop RID) but the exact same "no RID" setup threw
+         DllNotFoundException in CI on Linux once something there actually
+         constructed a TesseractEngine (QrLinkPdf.Tests/OcrTests.fs). -->
+    <RuntimeIdentifier>$(NETCoreSdkRuntimeIdentifier)</RuntimeIdentifier>
   </PropertyGroup>
 
   <ItemGroup>
@@ -17,9 +30,8 @@
          checks the flat output directory and a runtimes/<rid>/native/
          fallback automatically, with generic (unversioned) library names -
          so no CustomSearchPath setup, no renamed-file copy target, on any
-         of win-x64/win-arm64/linux-x64/linux-arm64/osx-arm64. Verified with
-         real OCR end-to-end via plain `dotnet run`, no -r/<RuntimeIdentifier>
-         needed. -->
+         of win-x64/win-arm64/linux-x64/linux-arm64/osx-arm64 - as long as
+         RuntimeIdentifier above actually resolves to one of them. -->
     <ProjectReference Include="QrLinkPdf.Core/QrLinkPdf.Core.fsproj" />
   </ItemGroup>
 

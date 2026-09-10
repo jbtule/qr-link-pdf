@@ -3,6 +3,18 @@
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
     <IsPackable>false</IsPackable>
+
+    <!-- OcrTests.fs constructs a real TesseractEngine, which needs
+         Tesseract.Native's flat native asset next to the test assembly -
+         that only gets copied for a RID-targeted build/restore (see
+         Tesseract.CrossPlatform's own README: "a bare dotnet run/build
+         with no RID context anywhere ... won't have any native asset to
+         find"). A plain `dotnet test` has no such context, so pin it to
+         whatever RID the current machine's SDK actually is - confirmed the
+         hard way: this passed locally (macOS apparently resolves an
+         implicit RID for a single-match platform) but failed in CI on
+         Linux with DllNotFoundException before this was added. -->
+    <RuntimeIdentifier>$(NETCoreSdkRuntimeIdentifier)</RuntimeIdentifier>
   </PropertyGroup>
 
   <ItemGroup>
