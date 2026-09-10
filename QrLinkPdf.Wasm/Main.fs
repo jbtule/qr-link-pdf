@@ -180,13 +180,7 @@ let private readFileAndThumbnail (file: IBrowserFile) =
         return file.Name, bytes, tryRenderThumbnailForPage bytes 0
     }
 
-let private processFile
-    (js: IJSRuntime)
-    (jsInProcess: IJSInProcessRuntime)
-    (ocrEnabled: bool)
-    (bareDomains: bool)
-    (bytes: byte[])
-    =
+let private processFile (jsInProcess: IJSInProcessRuntime) (ocrEnabled: bool) (bareDomains: bool) (bytes: byte[]) =
     task {
         do! Task.Yield()
 
@@ -194,16 +188,16 @@ let private processFile
             // A no-op if the startup load (see QrApp.Program) already
             // succeeded - this only does real work in the rare case a scan
             // starts before that finishes, or if it never does. Either way
-            // a failure here just means this scan runs without OCR; ocr.js
-            // itself returns no words rather than throwing on a still-null
-            // engine.
+            // a failure here just means this scan runs without OCR;
+            // Ocr.create itself returns no words rather than throwing on a
+            // still-unloaded engine.
             try
-                do! Ocr.init js
+                do! Ocr.init jsInProcess
             with _ ->
                 ()
 
         let log = ResizeArray<string>()
-        let ocrEngine = if ocrEnabled then Some(Ocr.create jsInProcess) else None
+        let ocrEngine = if ocrEnabled then Some(Ocr.create ()) else None
         use input = new MemoryStream(bytes)
         use output = new MemoryStream()
         let result = PdfQrLinker.link (browserOptions log.Add ocrEngine bareDomains) input output
@@ -272,7 +266,7 @@ let update (js: IJSRuntime) (jsInProcess: IJSInProcessRuntime) message model =
         | None -> model, Cmd.none
         | Some bytes ->
             { model with State = Working "Scanning..." },
-            Cmd.OfTask.either (processFile js jsInProcess model.OcrEnabled model.BareDomainsEnabled) bytes Finished Errored
+            Cmd.OfTask.either (processFile jsInProcess model.OcrEnabled model.BareDomainsEnabled) bytes Finished Errored
 
     | Finished(output, result, thumbnails, log) ->
         { model with
@@ -628,6 +622,6 @@ type QrApp() =
                   // fallback plan for why: this app already downloads ~27 MB
                   // of runtime unconditionally, so there's no principled
                   // reason to single out OCR's ~4-8 MB for lazy-loading.
-                  Cmd.OfTask.attempt Ocr.init this.JS (fun _ -> Reset) ]
+                  Cmd.OfTask.attempt Ocr.init jsInProcess (fun _ -> Reset) ]
 
         Program.mkProgram (fun _ -> init ()) (update this.JS jsInProcess) view

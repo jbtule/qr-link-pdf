@@ -161,27 +161,23 @@ further — at 200 DPI the test handout drops from 7 codes found to 5.
 
 ### OCR in the browser
 
-The "Also try OCR" checkbox is backed by
-[tesseract-wasm](https://github.com/robertknight/tesseract-wasm)'s low-level,
-synchronous engine, run entirely locally the same way everything else here
-is — nothing is uploaded. For local dev, vendor its files and get English
-trained data once:
+The "Also try OCR" checkbox is backed by the same
+[`Tesseract.CrossPlatform`](https://github.com/jbtule/tesseract-nuget-platforms)
+engine the desktop CLI uses (see its own `--ocr yes` section above) —
+`Tesseract.Native.browser-wasm` statically links real Tesseract/Leptonica
+into `dotnet.wasm` at publish time, so it runs entirely in-process and
+locally the same way everything else here does. Nothing is uploaded. It
+still needs English trained data once for local dev:
 
 ```sh
-npm pack tesseract-wasm@0.11.0
-tar xzf tesseract-wasm-0.11.0.tgz
-mkdir -p QrLinkPdf.Wasm/wwwroot/tesseract-wasm
-cp package/dist/lib.js package/dist/tesseract-core*.wasm QrLinkPdf.Wasm/wwwroot/tesseract-wasm/
-rm -rf package tesseract-wasm-0.11.0.tgz
-
 mkdir -p QrLinkPdf.Wasm/wwwroot/tessdata
 curl -L -o QrLinkPdf.Wasm/wwwroot/tessdata/eng.traineddata \
   https://github.com/tesseract-ocr/tessdata_fast/raw/main/eng.traineddata
 ```
 
-Neither is checked in — same reasoning as the CLI's `tessdata/`. In the
-deployed app these are hosted on the Cloudflare asset project alongside the
-.NET runtime, not GitHub Pages.
+Not checked in — same reasoning as the CLI's `tessdata/`. In the deployed
+app this is hosted on the Cloudflare asset project alongside the .NET
+runtime, not GitHub Pages.
 
 ### Icons
 
@@ -227,6 +223,14 @@ crisp fixtures never exercise the multi-scale pyramid in
 input. One test pins the pyramid's value directly: a washed-out code that a
 single full-resolution pass cannot see, and the pyramid can.
 
+Every other OCR test (in Tests.fs) injects a fake `OcrEngine` to test
+`PdfQrLinker`'s own linking/dedup logic in isolation.
+[OcrTests.fs](QrLinkPdf.Tests/OcrTests.fs) is the one place a real
+`TesseractEngine` runs under test — catching packaging/native-loading
+regressions a fake engine can never see. Needs `tessdata/eng.traineddata`
+next to the test assembly (same setup as the CLI's own `--ocr yes` above);
+fails loudly, rather than skipping, if it's missing.
+
 ### Proving the browser build
 
 ```sh
@@ -239,6 +243,21 @@ located and annotated. It exits non-zero if anything is wrong, so it works as
 a CI gate. This is the only automated check that covers the Emscripten
 static-archive linking of PDFium and Skia; a normal test run cannot, because
 it uses the desktop native libraries instead. Needs the `wasm-tools` workload.
+
+```sh
+./smoke-wasm-ocr.sh
+```
+
+Publishes the real `QrLinkPdf.Wasm` app and drives its actual UI headlessly
+via [Playwright](https://playwright.dev) ([smoke-wasm-ocr/](smoke-wasm-ocr/)):
+uploads a fixture PDF with no real text (only a rasterized image of one),
+enables the OCR checkbox, and checks both that OCR found the real URL *and*
+that Blazor's global `#blazor-error-ui` banner never appeared — this app has
+shipped a real regression where a successful OCR scan still triggered that
+banner (any native stderr write shows it, unconditionally), which neither
+`smoke-wasm.sh` (no OCR) nor `QrLinkPdf.Tests/OcrTests.fs` (desktop native
+libraries, not the wasm build) can catch. Needs `tessdata/eng.traineddata`
+(same OCR setup as above) and Node.
 
 ## Deploying
 

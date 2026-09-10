@@ -65,15 +65,28 @@
     <!-- Keep managed and native Skia on the same version. ZXing.Net.Bindings.SkiaSharp
          forces managed SkiaSharp to 4.151.1, while PDFtoImage's browser dependency
          group would otherwise bring the 4.150.1 native archive - and SkiaSharp's
-         managed/native contract is a raw C ABI with no version negotiation. -->
-    <PackageReference Include="SkiaSharp" Version="4.151.1" />
-    <PackageReference Include="SkiaSharp.NativeAssets.WebAssembly" Version="4.151.1" />
+         managed/native contract is a raw C ABI with no version negotiation.
+
+         Bumped to 4.152.0 (from 4.151.1): Tesseract.CrossPlatform.SkiaSharp
+         below requires it. -->
+    <PackageReference Include="SkiaSharp" Version="4.152.0" />
+    <PackageReference Include="SkiaSharp.NativeAssets.WebAssembly" Version="4.152.0" />
   </ItemGroup>
 
   <ItemGroup>
-    <!-- itext7 / PDFtoImage / ZXing come through here. They deliberately aren't
-         repeated above: NuGet resolves the transitive graph against this
-         project's TFM, so they pick their browser assets on their own. -->
+    <!-- itext7 / PDFtoImage / ZXing / Tesseract.CrossPlatform /
+         Tesseract.Native.browser-wasm come through here now. They
+         deliberately aren't repeated above: NuGet resolves the transitive
+         graph against this project's TFM/RuntimeIdentifier, so they pick
+         their browser-wasm assets on their own - including
+         Tesseract.Native.browser-wasm's buildTransitive target, which
+         injects tesseract.a/leptonica.a as NativeFileReferences the same
+         way regardless of which project in the graph declared the
+         PackageReference. Real Tesseract OCR runs in-process under
+         WebAssembly this way, replacing the old JS-interop bridge to
+         tesseract-wasm (see git history for Ocr.fs and wwwroot/ocr.js) -
+         same TesseractEngine/Page API as the desktop CLI's own Ocr.fs, from
+         https://github.com/jbtule/tesseract-nuget-platforms. -->
     <ProjectReference Include="../QrLinkPdf.Core/QrLinkPdf.Core.fsproj" />
   </ItemGroup>
 

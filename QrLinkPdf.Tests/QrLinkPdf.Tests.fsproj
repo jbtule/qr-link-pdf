@@ -9,10 +9,23 @@
     <Compile Include="TestPdfs.fs" />
     <Compile Include="Tests.fs" />
     <Compile Include="DegradedTests.fs" />
+    <Compile Include="OcrTests.fs" />
   </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="../QrLinkPdf.Core/QrLinkPdf.Core.fsproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- OcrTests.fs's own fixture, copied in from the repo-root tessdata/
+         used for local dev (README's OCR setup step; gitignored, same as
+         the CLI's own convention) if present. CI fetches it fresh instead
+         (see deploy.yml) since nothing is checked in here. -->
+    <None
+      Include="../tessdata/eng.traineddata"
+      CopyToOutputDirectory="PreserveNewest"
+      Link="tessdata/eng.traineddata"
+      Condition="Exists('../tessdata/eng.traineddata')" />
   </ItemGroup>
 
   <ItemGroup>

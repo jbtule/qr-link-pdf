@@ -13,6 +13,7 @@
     <Compile Include="ExistingLinks.fs" />
     <Compile Include="TextLinker.fs" />
     <Compile Include="PdfQrLinker.fs" />
+    <Compile Include="TesseractWords.fs" />
   </ItemGroup>
 
   <ItemGroup>
@@ -29,9 +30,38 @@
          4.150.1 and SkiaSharp's startup version check throws
          "native libSkiaSharp (150.0) is incompatible ... range [151.0, 152.0)".
          That only shows up on Linux, so it passes locally on a Mac and fails
-         in CI. -->
-    <PackageReference Include="SkiaSharp" Version="4.151.1" />
-    <PackageReference Include="SkiaSharp.NativeAssets.Linux.NoDependencies" Version="4.151.1" />
+         in CI.
+
+         Bumped to 4.152.0 (from 4.151.1) because Tesseract.CrossPlatform.SkiaSharp
+         (see Ocr.fs) requires SkiaSharp >= 4.152.0 - same reasoning, just a
+         higher floor now. -->
+    <PackageReference Include="SkiaSharp" Version="4.152.0" />
+    <PackageReference Include="SkiaSharp.NativeAssets.Linux.NoDependencies" Version="4.152.0" />
+
+    <!-- Declared here, not separately in QrLinkPdf.fsproj/QrLinkPdf.Wasm.fsproj:
+         both hosts need the exact same versions anyway (see TesseractWords.fs's
+         own comment), and this project's other native dependencies
+         (itext7/PDFtoImage/ZXing above) already work this way - each host
+         picks up the right native asset transitively based on its own
+         TargetFramework/RuntimeIdentifier, the same mechanism
+         Tesseract.Native.browser-wasm's buildTransitive target relies on.
+
+         5.5.2.200, the first release with browser-wasm/SkiaSharp support,
+         published to nuget.org from
+         https://github.com/jbtule/tesseract-nuget-platforms/actions/runs/34473940485
+         (its own Trusted Publishing policy needed a fix first - the
+         workflow initially failed with a token-exchange 401, policy
+         pointed at pack.yml instead of release.yml). -->
+    <PackageReference Include="Tesseract.CrossPlatform" Version="5.5.2.200" />
+    <PackageReference Include="Tesseract.CrossPlatform.SkiaSharp" Version="5.5.2.200" />
+    <!-- Desktop native runtimes (win-x64/win-arm64/linux-x64/linux-arm64/
+         osx-arm64) - a no-op for a browser-wasm consumer, since none of its
+         runtime.<rid> packages have a matching RID there. -->
+    <PackageReference Include="Tesseract.Native" Version="5.5.2.200" />
+    <!-- Statically-linked browser-wasm native build - a no-op everywhere
+         else, since its buildTransitive target is conditioned on
+         $(RuntimeIdentifier) == 'browser-wasm'. -->
+    <PackageReference Include="Tesseract.Native.browser-wasm" Version="5.5.2.200" />
   </ItemGroup>
 
 </Project>

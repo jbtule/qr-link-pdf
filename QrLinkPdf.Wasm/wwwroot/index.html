@@ -51,9 +51,18 @@
         // GitHub Pages - which only gzips, and has a bandwidth budget - while
         // the ~25 MB of runtime is better off somewhere with brotli and no cap.
         window.qrLinkPdfAssetBase = "";
+        // Ocr.fs reads this through JS interop (IJSInProcessRuntime, which
+        // it already needs to be synchronous) to fetch eng.traineddata from
+        // the same host as everything else - same convention as
+        // loadBootResource below, just exposed as a callable function since
+        // interop invokes by name, not by reading a global directly. Falls
+        // back to the page's own base (document.baseURI, not "") because
+        // .NET's HttpClient needs an absolute BaseAddress, unlike a bare
+        // relative fetch() URL.
+        window.qrLinkPdfGetAssetBase = function () { return window.qrLinkPdfAssetBase || document.baseURI; };
         // The commit this page was built from - rewritten by the deploy
         // workflow, same as the build badge below. Every same-origin file
-        // that isn't itself fingerprinted (app.css, download.js, ocr.js,
+        // that isn't itself fingerprinted (app.css, download.js,
         // blazor.webassembly.js, dotnet.js - unlike the assemblies, which
         // Blazor names by content hash on its own) gets this appended as a
         // cache-busting query string, so a new deploy is a genuinely new
@@ -65,7 +74,6 @@
         window.qrLinkPdfBuildVersion = "dev";
     </script>
     <script src="download.js?v=dev"></script>
-    <script src="ocr.js?v=dev"></script>
     <script src="_framework/blazor.webassembly.js?v=dev" autostart="false"></script>
     <script>
         Blazor.start({

@@ -1,9 +1,10 @@
 # Builds the browser app and deploys it across two hosts:
 #
 #   GitHub Pages  - index.html, css, and the ~50 KB Blazor bootstrap (~65 KB)
-#   Cloudflare    - the .NET runtime, PDFium, Skia and every assembly (~27 MB),
-#                   plus tesseract-wasm and its English model for the OCR
-#                   checkbox (~7-8 MB), fetched on demand only when it's used
+#   Cloudflare    - the .NET runtime (Tesseract statically linked in - see
+#                   QrLinkPdf.Wasm.fsproj), PDFium, Skia and every assembly
+#                   (~27 MB), plus the OCR checkbox's English trained data
+#                   (~4 MB), fetched on demand only when it's used
 #
 # The split exists because GitHub Pages only gzips and has a 100 GB/month soft
 # bandwidth limit, while Cloudflare serves static assets with brotli/zstd and no
@@ -51,6 +52,18 @@ jobs:
       - name: Install wasm-tools
         run: dotnet workload install wasm-tools
 
+      # English trained data for OCR - fetched once here, ahead of Test:
+      # QrLinkPdf.Tests/OcrTests.fs runs real TesseractEngine OCR (not the
+      # fake-engine tests elsewhere in the suite) and fails loudly, not
+      # skips, if this is missing - see its own comment for why. Same file
+      # the CLI's own --ocr yes needs locally (README), not checked in.
+      - name: Fetch OCR trained data
+        run: |
+          set -euo pipefail
+          mkdir -p tessdata
+          curl -sL -o tessdata/eng.traineddata \
+            https://github.com/tesseract-ocr/tessdata_fast/raw/main/eng.traineddata
+
       - name: Test
         run: dotnet test QrLinkPdf.Tests/QrLinkPdf.Tests.fsproj --configuration Release
 
@@ -60,21 +73,17 @@ jobs:
       - name: Smoke test WebAssembly
         run: ./smoke-wasm.sh
 
-      # Vendored for the browser's OCR checkbox (tesseract-wasm's low-level
-      # engine + English trained data), same as the local dev setup in the
-      # README - not checked in, fetched fresh here instead. Placed in
-      # wwwroot before Publish so it's picked up as a static web asset the
-      # same way app.css/download.js/ocr.js already are.
-      - name: Fetch OCR assets
+      # Tesseract itself is statically linked into dotnet.wasm at publish
+      # time (see QrLinkPdf.Wasm.fsproj's Tesseract.Native.browser-wasm
+      # reference via Core) - the trained data fetched above is the only OCR
+      # asset the browser still needs separately. Placed in wwwroot before
+      # Publish so it's picked up as a static web asset the same way
+      # app.css/download.js already are.
+      - name: Copy OCR trained data into the browser app
         run: |
           set -euo pipefail
-          npm pack tesseract-wasm@0.11.0
-          tar xzf tesseract-wasm-0.11.0.tgz
-          mkdir -p QrLinkPdf.Wasm/wwwroot/tesseract-wasm QrLinkPdf.Wasm/wwwroot/tessdata
-          cp package/dist/lib.js package/dist/tesseract-core*.wasm QrLinkPdf.Wasm/wwwroot/tesseract-wasm/
-          rm -rf package tesseract-wasm-0.11.0.tgz
-          curl -sL -o QrLinkPdf.Wasm/wwwroot/tessdata/eng.traineddata \
-            https://github.com/tesseract-ocr/tessdata_fast/raw/main/eng.traineddata
+          mkdir -p QrLinkPdf.Wasm/wwwroot/tessdata
+          cp tessdata/eng.traineddata QrLinkPdf.Wasm/wwwroot/tessdata/
 
       # No .br/.gz: Cloudflare compresses on the fly and GitHub Pages can't
       # serve precompressed files anyway. Saves ~20 MB per deploy.
@@ -84,13 +93,27 @@ jobs:
           --configuration Release
           -p:CompressionEnabled=false
 
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+
+      # Gate the deploy on OCR actually working end to end in a real
+      # browser - uploads smoke-wasm-ocr/fixture.pdf, enables the checkbox,
+      # and checks both that OCR found the real URL and that Blazor's
+      # global error banner never showed up. Neither Smoke test WebAssembly
+      # above (no OCR at all) nor a plain dotnet test (desktop native
+      # libraries, not the wasm build) would catch the class of bug this
+      # exists for - see smoke-wasm-ocr.sh's own comment.
+      - name: Smoke test WebAssembly OCR
+        run: ./smoke-wasm-ocr.sh
+
       - name: Split the output across the two hosts
         run: |
           set -euo pipefail
           pub=QrLinkPdf.Wasm/bin/Release/net10.0-browser/publish/wwwroot
           mkdir -p shell/_framework assets/_framework
 
-          cp "$pub/app.css" "$pub/download.js" "$pub/ocr.js" shell/
+          cp "$pub/app.css" "$pub/download.js" shell/
           # Icons/manifest need to be same-origin with the page - iOS reads
           # apple-touch-icon.png relative to the page it's added from, and a
           # browser's favicon/manifest requests are same-origin by default.
@@ -103,9 +126,10 @@ jobs:
           cp -R "$pub"/_framework/. assets/_framework/
           rm -f assets/_framework/blazor.webassembly*.js
 
-          # ocr.js resolves these relative to qrLinkPdfAssetBase itself (see
-          # its own comment), so they go on the asset host, not the shell.
-          cp -R "$pub/tesseract-wasm" "$pub/tessdata" assets/
+          # Ocr.fs resolves this relative to qrLinkPdfGetAssetBase() itself
+          # (see its own comment), so it goes on the asset host, not the
+          # shell.
+          cp -R "$pub/tessdata" assets/
 
           # Stamp the footer badge with the commit being deployed. Falls back
           # to the committed "dev" defaults when GITHUB_SHA is unset, which is
@@ -144,13 +168,10 @@ jobs:
           grep -q "qr-link-pdf/${commit}" shell/index.html
 
           # Cross-origin fetches need this or the runtime never loads. Blazor
-          # also verifies asset integrity, which requires a non-opaque response.
-          # ocr.js's dynamic import() and fetch() of these same-host paths
-          # need it too.
+          # also verifies asset integrity, which requires a non-opaque
+          # response. Ocr.fs's HttpClient fetch of tessdata needs it too.
           cat > assets/_headers <<EOF
           /_framework/*
-            Access-Control-Allow-Origin: https://tools.tuley.name
-          /tesseract-wasm/*
             Access-Control-Allow-Origin: https://tools.tuley.name
           /tessdata/*
             Access-Control-Allow-Origin: https://tools.tuley.name
