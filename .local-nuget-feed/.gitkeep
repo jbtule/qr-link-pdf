@@ -1,0 +1,5 @@
+Keeps this directory present after a fresh checkout - NuGet.Config declares
+it as a package source, and `dotnet restore` hard-errors (NU1301) if a
+configured local folder source doesn't exist at all, even though it's
+otherwise silently skipped when merely empty. The .nupkg files that go here
+are still gitignored; this placeholder isn't.

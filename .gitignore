@@ -12,8 +12,11 @@ QrLinkPdf.Wasm/wwwroot/tesseract-wasm/
 
 # Whatever preview .nupkgs get dropped into NuGet.Config's standing local
 # feed for testing an unpublished build - see its own comment. NuGet.Config
-# itself is checked in.
-.local-nuget-feed/
+# itself is checked in, and so is .local-nuget-feed/.gitkeep (the directory
+# has to actually exist after checkout, or dotnet restore hard-errors with
+# NU1301 - confirmed the hard way, in CI, right after this mechanism was
+# first merged).
+.local-nuget-feed/*.nupkg
 
 # smoke-wasm-ocr.sh's npm/Playwright dependencies.
 smoke-wasm-ocr/node_modules/
