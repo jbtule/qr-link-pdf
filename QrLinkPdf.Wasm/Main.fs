@@ -165,6 +165,12 @@ let private letterFindings (result: ScanResult) : Finding list =
           Height = l.Height
           Status = status })
 
+/// Recognized image extensions - wrapped in a one-page PDF via
+/// ImageToPdf.convert right after buffering below, so everything past that
+/// point (thumbnail rendering, scanning, download) only ever deals in PDF
+/// bytes, same as the CLI's own readInputBytes.
+let private imageExtensions = set [ ".png"; ".jpg"; ".jpeg"; ".webp"; ".gif"; ".bmp" ]
+
 /// The browser's file stream only supports async reads, and QrLinkPdf.Core
 /// reads synchronously - so buffer here first. It costs nothing: Core's
 /// readAll short-circuits on a MemoryStream.
@@ -173,10 +179,17 @@ let private readFileAndThumbnail (file: IBrowserFile) =
         use source = file.OpenReadStream(maxAllowedSize = maxUploadBytes)
         let buffer = new MemoryStream()
         do! source.CopyToAsync(buffer)
-        let bytes = buffer.ToArray()
-        // Let the "Reading..." render land before rendering the thumbnail
-        // blocks the only thread.
+        let rawBytes = buffer.ToArray()
+        // Let the "Reading..." render land before the image-to-PDF
+        // conversion (or the thumbnail render below) blocks the only thread.
         do! Task.Yield()
+
+        let bytes =
+            if imageExtensions.Contains(Path.GetExtension(file.Name).ToLowerInvariant()) then
+                ImageToPdf.convert rawBytes
+            else
+                rawBytes
+
         return file.Name, bytes, tryRenderThumbnailForPage bytes 0
     }
 
@@ -533,14 +546,14 @@ let view model dispatch =
 
         p {
             attr.``class`` "lede"
-            "Choose a PDF. Every QR code whose payload is a URL, and every plain-text URL that isn't already a hyperlink, becomes a real, clickable link annotation, and you get the PDF back."
+            "Choose a PDF, or a photo of a flyer. Every QR code whose payload is a URL, and every plain-text URL that isn't already a hyperlink, becomes a real, clickable link annotation, and you get a PDF back."
         }
 
         div {
             attr.``class`` "picker"
 
             comp<InputFile> {
-                "accept" => ".pdf,application/pdf"
+                "accept" => ".pdf,application/pdf,.png,.jpg,.jpeg,.webp,.gif,.bmp,image/*"
                 attr.callback<InputFileChangeEventArgs> "OnChange" (fun e -> dispatch (FileChosen e.File))
             }
         }
@@ -555,7 +568,7 @@ let view model dispatch =
                     on.change (fun e -> dispatch (OcrToggled(e.Value :?> bool)))
                 }
 
-                "Also try OCR on pages with no extractable text"
+                "Also try OCR on pages with no extractable text (needed to find plain-text URLs in a photo - it has none otherwise)"
             }
 
             label {

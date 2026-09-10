@@ -51,12 +51,20 @@ is left alone.
 ## Usage
 
 ```sh
-dotnet run -- <input.pdf> [output.pdf] [--debug yes|no] [--ocr yes|no] [--bare-domains yes|no]
+dotnet run -- <input.pdf|.png|.jpg> [output.pdf] [--debug yes|no] [--ocr yes|no] [--bare-domains yes|no]
 ```
 
 `output.pdf` defaults to `<input>-linked.pdf` next to the input file if
 omitted — the same name the browser app's download already uses. Every flag
 defaults to `no` (the library's own default) if left out.
+
+`input` can also be a plain image (`.png`, `.jpg`/`.jpeg`, `.webp`, `.gif`,
+`.bmp` — anything [`ImageToPdf`](QrLinkPdf.Core/ImageToPdf.fs) can wrap), for
+a photo of a flyer rather than an actual PDF. It's converted to a one-page
+PDF first, sized to the image's own pixel dimensions, and everything past
+that point works exactly like any other PDF — including that an image page
+has *no* real text at all, so `--ocr yes` is what finds any plain-text URL
+on it; without it, only QR codes get linked.
 
 - `--debug yes` logs every QR code and text-detected URL candidate found on
   each page — including ones whose payload didn't pass the URL filter —

@@ -8,6 +8,7 @@
 
   <ItemGroup>
     <Compile Include="Types.fs" />
+    <Compile Include="ImageToPdf.fs" />
     <Compile Include="Scanner.fs" />
     <Compile Include="Geometry.fs" />
     <Compile Include="ExistingLinks.fs" />

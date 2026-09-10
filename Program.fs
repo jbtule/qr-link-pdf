@@ -13,7 +13,22 @@ type private Flags =
 let private defaultFlags = { Debug = false; Ocr = false; BareDomains = false }
 
 let private usage =
-    "Usage: QrLinkPdf <input.pdf> [output.pdf] [--debug yes|no] [--ocr yes|no] [--bare-domains yes|no]"
+    "Usage: QrLinkPdf <input.pdf|.png|.jpg> [output.pdf] [--debug yes|no] [--ocr yes|no] [--bare-domains yes|no]"
+
+/// Recognized image extensions, wrapped in a one-page PDF via ImageToPdf
+/// before anything else sees them - everything past this point (including
+/// error messages below) only ever deals in PDF bytes. Anything else is
+/// assumed to already be a PDF and passed through unchanged; iText's own
+/// error if that assumption is wrong is clear enough on its own.
+let private imageExtensions = set [ ".png"; ".jpg"; ".jpeg"; ".webp"; ".gif"; ".bmp" ]
+
+let private readInputBytes (inputPath: string) : byte[] =
+    let bytes = IO.File.ReadAllBytes inputPath
+
+    if imageExtensions.Contains(IO.Path.GetExtension(inputPath).ToLowerInvariant()) then
+        ImageToPdf.convert bytes
+    else
+        bytes
 
 let private parseYesNo (name: string) (value: string) =
     match value.ToLowerInvariant() with
@@ -82,7 +97,9 @@ let main argv =
                 MatchBareDomains = flags.BareDomains
                 Trace = if flags.Debug then eprintfn "[debug] %s" else ignore }
 
-        let result = PdfQrLinker.linkFile options inputPath outputPath
+        use input = new IO.MemoryStream(readInputBytes inputPath)
+        use output = IO.File.Create(outputPath)
+        let result = PdfQrLinker.link options input output
 
         if result.Links.IsEmpty && result.AlreadyLinked.IsEmpty then
             printfn "No QR codes or plain-text URLs worth linking were found."
