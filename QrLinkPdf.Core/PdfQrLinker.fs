@@ -3,12 +3,16 @@
 /// clickable link annotation over each one.
 module QrLinkPdf.PdfQrLinker
 
+open System.Diagnostics
 open System.IO
 open PDFtoImage
 open iText.Kernel.Pdf
 open iText.Kernel.Pdf.Action
 open iText.Kernel.Pdf.Annot
 open iText.Kernel.Geom
+
+/// "1.23s", for the phase-timing Trace lines below.
+let private seconds (stopwatch: Stopwatch) = sprintf "%.2fs" stopwatch.Elapsed.TotalSeconds
 
 /// Page sizes in points, keyed by 1-based page number.
 let private pageSizes (doc: PdfDocument) =
@@ -71,14 +75,28 @@ let private findQrLinks
     List.ofSeq linked, List.ofSeq alreadyLinked
 
 /// Find every linkable QR code and every linkable run of plain URL text on
-/// every page of `doc`.
+/// every page of `doc`. Each phase's own wall time goes through Trace right
+/// after it finishes - `scan`/`link` add the overall total once this
+/// returns, so a run's log always ends with a full phase-by-phase
+/// breakdown, not just a "found N links" count.
 let private findInBytes (options: ScanOptions) (pdfBytes: byte[]) (doc: PdfDocument) : ScanResult =
     let sizes = pageSizes doc
+
+    let qrStopwatch = Stopwatch.StartNew()
     let qrLinked, qrAlreadyLinked = findQrLinks options pdfBytes doc sizes
+    options.Trace(sprintf "QR scan: %s" (seconds qrStopwatch))
+
+    let textStopwatch = Stopwatch.StartNew()
 
     let textLinked, textAlreadyLinked =
         [ for pageNumber in 1 .. doc.GetNumberOfPages() -> TextLinker.findOnPage options pdfBytes doc pageNumber ]
         |> List.unzip
+
+    // Includes OCR time when an OcrEngine is set - TextLinker.findOnPage
+    // runs it inline per page, not as a separate phase, so there's no
+    // narrower boundary to time it at without threading a second stopwatch
+    // through every OCR call site.
+    options.Trace(sprintf "Text/OCR scan: %s" (seconds textStopwatch))
 
     { Links = qrLinked @ List.concat textLinked
       AlreadyLinked = qrAlreadyLinked @ List.concat textAlreadyLinked }
@@ -107,9 +125,12 @@ let private addLinkAnnotation (doc: PdfDocument) (link: QrLink) =
 /// `input`, without modifying anything. The stream is read to the end but
 /// left open.
 let scan (options: ScanOptions) (input: Stream) : ScanResult =
+    let totalStopwatch = Stopwatch.StartNew()
     let bytes = readAll input
     use doc = new PdfDocument(new PdfReader(new MemoryStream(bytes)))
-    findInBytes options bytes doc
+    let result = findInBytes options bytes doc
+    options.Trace(sprintf "Total: %s" (seconds totalStopwatch))
+    result
 
 /// Copy the PDF read from `input` to `output`, adding a clickable link
 /// annotation over every QR code and plain URL text run whose payload passes
@@ -117,6 +138,7 @@ let scan (options: ScanOptions) (input: Stream) : ScanResult =
 /// linked and what was found already linked and left alone. Both streams are
 /// left open.
 let link (options: ScanOptions) (input: Stream) (output: Stream) : ScanResult =
+    let totalStopwatch = Stopwatch.StartNew()
     let bytes = readAll input
 
     use reader = new PdfReader(new MemoryStream(bytes))
@@ -129,6 +151,13 @@ let link (options: ScanOptions) (input: Stream) (output: Stream) : ScanResult =
     for l in result.Links do
         addLinkAnnotation doc l
 
+    // Explicit Close (idempotent - `use` above still runs its Dispose as a
+    // safety net) rather than leaving it to disposal: PdfDocument writes
+    // lazily, so closing here rather than after Total is traced is what
+    // makes Total include the actual write-out, not just the scan +
+    // in-memory annotation step.
+    doc.Close()
+    options.Trace(sprintf "Total: %s" (seconds totalStopwatch))
     result
 
 /// File-path convenience wrapper around `link`.
