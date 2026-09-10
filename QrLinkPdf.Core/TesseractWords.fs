@@ -1,10 +1,12 @@
-/// Shared between the desktop CLI's Ocr.fs and QrLinkPdf.Wasm/Ocr.fs -
-/// source-included into both projects (see their own .fsproj, same pattern
-/// QrLinkPdf.Wasm.SmokeTest.fsproj already uses for TestPdfs.fs) rather than
-/// a separate library project, since it's one function. Not part of
-/// QrLinkPdf.Core: Core deliberately has no Tesseract dependency, keeping
-/// ScanOptions.OcrEngine as a plain `SKBitmap -> OcrWord list` so it stays
-/// engine-agnostic.
+/// Shared between the desktop CLI's Ocr.fs and QrLinkPdf.Wasm/Ocr.fs, which
+/// both build on `Tesseract.CrossPlatform`/`Tesseract.CrossPlatform.SkiaSharp`
+/// now (see each project's own PackageReference comment for why those moved
+/// here rather than being declared separately in both - same reasoning as
+/// itext7/PDFtoImage/ZXing already living here instead of in each host
+/// project). What's genuinely platform-specific - constructing the engine
+/// itself, sync on desktop vs. an async fetch-then-construct under wasm -
+/// stays in each host's own Ocr.fs; this is just the part that's identical
+/// once an engine already exists.
 module QrLinkPdf.TesseractWords
 
 open System

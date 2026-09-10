@@ -52,9 +52,6 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <!-- Shared with the desktop CLI's own Ocr.fs - same pattern
-         QrLinkPdf.Wasm.SmokeTest.fsproj already uses for TestPdfs.fs. -->
-    <Compile Include="../TesseractWords.fs" />
     <Compile Include="Ocr.fs" />
     <Compile Include="Main.fs" />
     <Compile Include="Startup.fs" />
@@ -74,35 +71,22 @@
          below requires it. -->
     <PackageReference Include="SkiaSharp" Version="4.152.0" />
     <PackageReference Include="SkiaSharp.NativeAssets.WebAssembly" Version="4.152.0" />
-
-    <!-- Real Tesseract OCR in-process under WebAssembly, replacing the old
-         JS-interop bridge to tesseract-wasm (see git history for Ocr.fs and
-         wwwroot/ocr.js) - same TesseractEngine/Page API as the desktop CLI's
-         own Ocr.fs, from https://github.com/jbtule/tesseract-nuget-platforms.
-
-         PREVIEW 5.5.2.200-preview.0c0188f, not yet on nuget.org - restored
-         from the local feed in ../NuGet.Config (gitignored; see its own
-         comment), from
-         https://github.com/jbtule/tesseract-nuget-platforms/actions/runs/34429232106.
-         This is the first release with browser-wasm support at all. -->
-    <PackageReference Include="Tesseract.CrossPlatform" Version="5.5.2.200-preview.0c0188f" />
-    <!-- Statically links tesseract.a/leptonica.a into dotnet.wasm via
-         buildTransitive - no NativeFileReference authoring needed here, see
-         its own README. Deliberately not part of Tesseract.Native (that
-         meta-package is desktop-only runtime.<rid> packages); a wasm
-         consumer adds this one explicitly instead. -->
-    <PackageReference Include="Tesseract.Native.browser-wasm" Version="5.5.2.200-preview.0c0188f" />
-    <!-- The browser-wasm native Tesseract build has no image codecs linked
-         in (see Tesseract.Native.browser-wasm's own README) - this converts
-         an already-decoded SKBitmap straight to a Pix instead (see Ocr.fs),
-         same as the desktop CLI's Ocr.fs now does. -->
-    <PackageReference Include="Tesseract.CrossPlatform.SkiaSharp" Version="5.5.2.200-preview.0c0188f" />
   </ItemGroup>
 
   <ItemGroup>
-    <!-- itext7 / PDFtoImage / ZXing come through here. They deliberately aren't
-         repeated above: NuGet resolves the transitive graph against this
-         project's TFM, so they pick their browser assets on their own. -->
+    <!-- itext7 / PDFtoImage / ZXing / Tesseract.CrossPlatform /
+         Tesseract.Native.browser-wasm come through here now. They
+         deliberately aren't repeated above: NuGet resolves the transitive
+         graph against this project's TFM/RuntimeIdentifier, so they pick
+         their browser-wasm assets on their own - including
+         Tesseract.Native.browser-wasm's buildTransitive target, which
+         injects tesseract.a/leptonica.a as NativeFileReferences the same
+         way regardless of which project in the graph declared the
+         PackageReference. Real Tesseract OCR runs in-process under
+         WebAssembly this way, replacing the old JS-interop bridge to
+         tesseract-wasm (see git history for Ocr.fs and wwwroot/ocr.js) -
+         same TesseractEngine/Page API as the desktop CLI's own Ocr.fs, from
+         https://github.com/jbtule/tesseract-nuget-platforms. -->
     <ProjectReference Include="../QrLinkPdf.Core/QrLinkPdf.Core.fsproj" />
   </ItemGroup>
 
