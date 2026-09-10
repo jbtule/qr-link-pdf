@@ -175,10 +175,19 @@ let private nearSameSpot (a: Rectangle) (b: Rectangle) =
 /// Real text and OCR can both independently find the same visible text -
 /// OCR has no idea a region was already covered by a real text chunk, and
 /// `findOnPage` runs it unconditionally (see its doc comment), so the same
-/// URL can come back twice: once from each source. Collapse candidates that
-/// share a URI and occupy the same spot, keeping the first - real-text
-/// chunks are listed before OCR chunks in `findOnPage`, so this prefers the
-/// more precisely-positioned real-text rect whenever both exist.
+/// spot can come back twice: once from each source. Collapse candidates
+/// that occupy the same spot, keeping the first - real-text chunks are
+/// listed before OCR chunks in `findOnPage`, so this prefers the more
+/// precisely-positioned real-text rect whenever both exist.
+///
+/// Same spot is enough on its own, deliberately not also requiring a
+/// matching URI: confirmed against a real document where OCR misread a
+/// printed URL ("wlf" as "wif") at the exact spot real text had already
+/// extracted correctly, and the differing URI let a wrong extra link
+/// through. Real text is authoritative wherever it exists at all - OCR
+/// exists to cover pages that have none (findOnPage's own doc comment) -
+/// so a same-spot OCR candidate should lose even when it disagrees on what
+/// the text says, not just when it agrees.
 let private dedupeBySpot (links: QrLink list) : QrLink list =
     let kept = ResizeArray<QrLink>()
 
@@ -187,9 +196,7 @@ let private dedupeBySpot (links: QrLink list) : QrLink list =
 
         let isDuplicate =
             kept
-            |> Seq.exists (fun k ->
-                k.Uri = link.Uri
-                && nearSameSpot rect (Rectangle(float32 k.Left, float32 k.Bottom, float32 k.Width, float32 k.Height)))
+            |> Seq.exists (fun k -> nearSameSpot rect (Rectangle(float32 k.Left, float32 k.Bottom, float32 k.Width, float32 k.Height)))
 
         if not isDuplicate then
             kept.Add link
@@ -281,18 +288,27 @@ let private linkChunks
         let rect = Rectangle(float32 link.Left, float32 link.Bottom, float32 link.Width, float32 link.Height)
         not (ExistingLinks.overlapsAny existing rect))
 
+/// Tesseract's LSTM models are trained around roughly this DPI-equivalent
+/// glyph size; feeding it much higher-resolution text doesn't help the way
+/// it helps QR detection - it can actively hurt recognition (confirmed
+/// against a real document: options.Dpi = 400 misread "wlf" as "wif" at
+/// the exact spot options.Dpi = 300 read correctly). options.Dpi is tuned
+/// for finding small/dense QR codes (see ScanOptions.Default's own
+/// comment) - a different, unrelated optimum - so OCR gets its own fixed
+/// rasterization DPI here instead of inheriting that knob.
+let private ocrDpi = 300
+
 /// Rasterize just this one page and run `engine` over it, converting each
 /// OCR'd word into a `Chunk` in PDF point-space so it can go through the
 /// exact same line-reconstruction/regex/UriFilter pipeline real text chunks
 /// do.
 let private ocrChunks
-    (options: ScanOptions)
     (engine: SKBitmap -> OcrWord list)
     (pdfBytes: byte[])
     (pageSize: float * float)
     (pageNumber: int)
     : Chunk list =
-    let renderOptions = RenderOptions(Dpi = options.Dpi, WithAnnotations = false, WithFormFill = true)
+    let renderOptions = RenderOptions(Dpi = ocrDpi, WithAnnotations = false, WithFormFill = true)
 
     // OCR only ever runs on the one page that needs it, so re-rasterizing
     // just that page here (rather than threading the QR path's whole-PDF
@@ -333,7 +349,7 @@ let findOnPage (options: ScanOptions) (pdfBytes: byte[]) (doc: PdfDocument) (pag
         | Some engine ->
             options.Trace(sprintf "  page %d: trying OCR" pageNumber)
             let size = page.GetPageSize()
-            ocrChunks options engine pdfBytes (float (size.GetWidth()), float (size.GetHeight())) pageNumber
+            ocrChunks engine pdfBytes (float (size.GetWidth()), float (size.GetHeight())) pageNumber
         | None -> []
 
     let chunks = realChunks @ ocrChunksFound

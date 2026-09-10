@@ -661,6 +661,45 @@ let ``does not duplicate a URL that OCR reports right next to where real text fo
     Assert.Equal(1, found.Length)
 
 [<Fact>]
+let ``prefers real text over an OCR misread at the same spot`` () =
+    // Regression test for a real-world false link: a flyer's printed URL
+    // ("www.wlf.la.gov/page/cwd") got real-text-extracted correctly, but
+    // OCR - run unconditionally over the same page, see findOnPage's own
+    // doc comment - misread "wlf" as "wif" at the exact same spot, adding a
+    // second, wrong link nobody wanted (dedupeBySpot's own URI-equality
+    // check didn't catch it, because the misread text means the two
+    // candidates' URIs genuinely differ, not just their rects). Real text
+    // is authoritative wherever it exists at all - OCR exists to cover
+    // *pages that have none* - so a same-spot OCR candidate should lose to
+    // it regardless of what OCR thinks the text says.
+    let pdf = textParagraph "Visit https://example.com/wlf today." (72f, 700f) 400f
+
+    use probeInput = new MemoryStream(pdf)
+    let real = (PdfQrLinker.scan options probeInput).Links.Head
+
+    let fakeEngine (bitmap: SKBitmap) : OcrWord list =
+        let pageHeight = 792.0
+        let toPixelX (x: float) = int (x * float bitmap.Width / 612.0)
+        let toPixelY (y: float) = int ((pageHeight - y) * float bitmap.Height / pageHeight)
+
+        [ { Text = "https://example.com/wif" // OCR's misread of the same spot
+            Box =
+              SKRectI(
+                  toPixelX real.Left,
+                  toPixelY real.Top,
+                  toPixelX real.Right,
+                  toPixelY real.Bottom
+              ) } ]
+
+    let withOcr = { options with OcrEngine = Some fakeEngine }
+
+    use input = new MemoryStream(pdf)
+    let found = (PdfQrLinker.scan withOcr input).Links
+
+    Assert.Equal(1, found.Length)
+    Assert.Equal("https://example.com/wlf", found.Head.Uri)
+
+[<Fact>]
 let ``does not add a duplicate annotation when OCR's near-miss escapes the overlap check that catches real text`` () =
     // Regression test for a real-world duplicate: a URL already linked, with
     // real text extraction correctly recognizing the overlap (existing rect
