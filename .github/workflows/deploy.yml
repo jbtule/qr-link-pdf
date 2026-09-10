@@ -64,8 +64,34 @@ jobs:
           curl -sL -o tessdata/eng.traineddata \
             https://github.com/tesseract-ocr/tessdata_fast/raw/main/eng.traineddata
 
+      # Split from Test below so LD_LIBRARY_PATH can point at the real
+      # output directory - see that step's own comment for why.
+      - name: Build tests
+        run: dotnet build QrLinkPdf.Tests/QrLinkPdf.Tests.fsproj --configuration Release
+
+      # A real, verified-upstream bug (reported), not local misconfiguration:
+      # Tesseract.Native.runtime.linux-x64 bundles its own libssl.so.3/
+      # libcrypto.so.3/libcurl.so.4 (for tesseract's optional model-download
+      # feature) with RUNPATH=$ORIGIN on libcurl.so.4/libtesseract.so - but
+      # that doesn't help here, confirmed the hard way with a minimal
+      # NativeLibrary.Load repro carrying zero xunit/VSTest at all: .NET's
+      # own runtime already has the *system* libssl.so.3/libcrypto.so.3
+      # resident by the time anything tries to load Tesseract's, and once a
+      # shared object satisfying a given SONAME is mapped into the process,
+      # the dynamic linker reuses that mapping for every later NEEDED
+      # reference to the same SONAME regardless of search path - so no
+      # amount of RUNPATH, LD_LIBRARY_PATH set from *inside* the running
+      # process, or explicitly pre-loading the bundled copies by absolute
+      # path can shift it once that's happened. It has to be set before the
+      # dotnet host process starts at all, so its own OpenSSL loading (if
+      # any) picks the bundled version first. Ubuntu 22.04/24.04's system
+      # OpenSSL is 3.0.x; the bundled one needs OPENSSL_3.2/3.3 symbols.
+      # This isn't CI-specific either - a real `dotnet run --ocr yes` on a
+      # stock Linux box hits the exact same thing.
       - name: Test
-        run: dotnet test QrLinkPdf.Tests/QrLinkPdf.Tests.fsproj --configuration Release
+        run: dotnet test QrLinkPdf.Tests/QrLinkPdf.Tests.fsproj --configuration Release --no-build
+        env:
+          LD_LIBRARY_PATH: ${{ github.workspace }}/QrLinkPdf.Tests/bin/Release/net10.0/linux-x64
 
       # Gate the deploy on the library actually working under WebAssembly.
       # A normal test run uses the desktop native libraries and would not
