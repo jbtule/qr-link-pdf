@@ -71,6 +71,18 @@ jobs:
       - name: Install wasm-tools
         run: dotnet workload install wasm-tools
 
+      # English trained data for OCR - fetched once here, ahead of Test:
+      # QrLinkPdf.Tests/OcrTests.fs runs real TesseractEngine OCR (not the
+      # fake-engine tests elsewhere in the suite) and fails loudly, not
+      # skips, if this is missing - see its own comment for why. Same file
+      # the CLI's own --ocr yes needs locally (README), not checked in.
+      - name: Fetch OCR trained data
+        run: |
+          set -euo pipefail
+          mkdir -p tessdata
+          curl -sL -o tessdata/eng.traineddata \
+            https://github.com/tesseract-ocr/tessdata_fast/raw/main/eng.traineddata
+
       - name: Test
         run: dotnet test QrLinkPdf.Tests/QrLinkPdf.Tests.fsproj --configuration Release
 
@@ -80,19 +92,17 @@ jobs:
       - name: Smoke test WebAssembly
         run: ./smoke-wasm.sh
 
-      # The English trained data for the browser's OCR checkbox - Tesseract
-      # itself is statically linked into dotnet.wasm at publish time (see
-      # QrLinkPdf.Wasm.fsproj's Tesseract.Native.browser-wasm reference), so
-      # this is the only OCR asset left to fetch separately. Same as the
-      # local dev setup in the README - not checked in, fetched fresh here
-      # instead. Placed in wwwroot before Publish so it's picked up as a
-      # static web asset the same way app.css/download.js already are.
-      - name: Fetch OCR trained data
+      # Tesseract itself is statically linked into dotnet.wasm at publish
+      # time (see QrLinkPdf.Wasm.fsproj's Tesseract.Native.browser-wasm
+      # reference via Core) - the trained data fetched above is the only OCR
+      # asset the browser still needs separately. Placed in wwwroot before
+      # Publish so it's picked up as a static web asset the same way
+      # app.css/download.js already are.
+      - name: Copy OCR trained data into the browser app
         run: |
           set -euo pipefail
           mkdir -p QrLinkPdf.Wasm/wwwroot/tessdata
-          curl -sL -o QrLinkPdf.Wasm/wwwroot/tessdata/eng.traineddata \
-            https://github.com/tesseract-ocr/tessdata_fast/raw/main/eng.traineddata
+          cp tessdata/eng.traineddata QrLinkPdf.Wasm/wwwroot/tessdata/
 
       # No .br/.gz: Cloudflare compresses on the fly and GitHub Pages can't
       # serve precompressed files anyway. Saves ~20 MB per deploy.
