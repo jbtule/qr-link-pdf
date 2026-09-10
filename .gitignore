@@ -10,11 +10,10 @@ tessdata/
 QrLinkPdf.Wasm/wwwroot/tessdata/
 QrLinkPdf.Wasm/wwwroot/tesseract-wasm/
 
-# Unpublished preview .nupkgs from a jbtule/tesseract-nuget-platforms test
-# run (not on nuget.org yet) plus the local feed nuget.config pointing at
-# them - see NuGet.Config's own comment.
+# Whatever preview .nupkgs get dropped into NuGet.Config's standing local
+# feed for testing an unpublished build - see its own comment. NuGet.Config
+# itself is checked in.
 .local-nuget-feed/
-NuGet.Config
 
 # smoke-wasm-ocr.sh's npm/Playwright dependencies.
 smoke-wasm-ocr/node_modules/
