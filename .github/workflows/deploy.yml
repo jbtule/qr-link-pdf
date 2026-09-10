@@ -112,6 +112,20 @@ jobs:
           --configuration Release
           -p:CompressionEnabled=false
 
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+
+      # Gate the deploy on OCR actually working end to end in a real
+      # browser - uploads smoke-wasm-ocr/fixture.pdf, enables the checkbox,
+      # and checks both that OCR found the real URL and that Blazor's
+      # global error banner never showed up. Neither Smoke test WebAssembly
+      # above (no OCR at all) nor a plain dotnet test (desktop native
+      # libraries, not the wasm build) would catch the class of bug this
+      # exists for - see smoke-wasm-ocr.sh's own comment.
+      - name: Smoke test WebAssembly OCR
+        run: ./smoke-wasm-ocr.sh
+
       - name: Split the output across the two hosts
         run: |
           set -euo pipefail

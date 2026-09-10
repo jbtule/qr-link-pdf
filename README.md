@@ -223,6 +223,14 @@ crisp fixtures never exercise the multi-scale pyramid in
 input. One test pins the pyramid's value directly: a washed-out code that a
 single full-resolution pass cannot see, and the pyramid can.
 
+Every other OCR test (in Tests.fs) injects a fake `OcrEngine` to test
+`PdfQrLinker`'s own linking/dedup logic in isolation.
+[OcrTests.fs](QrLinkPdf.Tests/OcrTests.fs) is the one place a real
+`TesseractEngine` runs under test — catching packaging/native-loading
+regressions a fake engine can never see. Needs `tessdata/eng.traineddata`
+next to the test assembly (same setup as the CLI's own `--ocr yes` above);
+fails loudly, rather than skipping, if it's missing.
+
 ### Proving the browser build
 
 ```sh
@@ -235,6 +243,21 @@ located and annotated. It exits non-zero if anything is wrong, so it works as
 a CI gate. This is the only automated check that covers the Emscripten
 static-archive linking of PDFium and Skia; a normal test run cannot, because
 it uses the desktop native libraries instead. Needs the `wasm-tools` workload.
+
+```sh
+./smoke-wasm-ocr.sh
+```
+
+Publishes the real `QrLinkPdf.Wasm` app and drives its actual UI headlessly
+via [Playwright](https://playwright.dev) ([smoke-wasm-ocr/](smoke-wasm-ocr/)):
+uploads a fixture PDF with no real text (only a rasterized image of one),
+enables the OCR checkbox, and checks both that OCR found the real URL *and*
+that Blazor's global `#blazor-error-ui` banner never appeared — this app has
+shipped a real regression where a successful OCR scan still triggered that
+banner (any native stderr write shows it, unconditionally), which neither
+`smoke-wasm.sh` (no OCR) nor `QrLinkPdf.Tests/OcrTests.fs` (desktop native
+libraries, not the wasm build) can catch. Needs `tessdata/eng.traineddata`
+(same OCR setup as above) and Node.
 
 ## Deploying
 

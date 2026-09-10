@@ -15,3 +15,6 @@ QrLinkPdf.Wasm/wwwroot/tesseract-wasm/
 # them - see NuGet.Config's own comment.
 .local-nuget-feed/
 NuGet.Config
+
+# smoke-wasm-ocr.sh's npm/Playwright dependencies.
+smoke-wasm-ocr/node_modules/
