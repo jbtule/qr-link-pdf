@@ -298,27 +298,31 @@ let private linkChunks
 /// rasterization DPI here instead of inheriting that knob.
 let private ocrDpi = 300
 
-/// Rasterize just this one page and run `engine` over it, converting each
-/// OCR'd word into a `Chunk` in PDF point-space so it can go through the
-/// exact same line-reconstruction/regex/UriFilter pipeline real text chunks
-/// do.
-let private ocrChunks
-    (engine: SKBitmap -> OcrWord list)
-    (pdfBytes: byte[])
-    (pageSize: float * float)
-    (pageNumber: int)
-    : Chunk list =
+/// Rasterize just this one page - re-rasterizing here (rather than
+/// threading the QR path's whole-PDF rasterization pass through) keeps
+/// this module independent of PdfQrLinker's.
+let private rasterizeOcrPage (pdfBytes: byte[]) (pageNumber: int) : SKBitmap =
     let renderOptions = RenderOptions(Dpi = ocrDpi, WithAnnotations = false, WithFormFill = true)
+    Conversion.ToImage(pdfBytes, Index(pageNumber - 1), options = renderOptions)
 
-    // OCR only ever runs on the one page that needs it, so re-rasterizing
-    // just that page here (rather than threading the QR path's whole-PDF
-    // rasterization pass through) keeps this module independent of
-    // PdfQrLinker's.
-    use bitmap = Conversion.ToImage(pdfBytes, Index(pageNumber - 1), options = renderOptions)
-
+/// Runs `engine` over `bitmap` and converts each OCR'd word into a `Chunk`
+/// in PDF point-space, so it can go through the exact same
+/// line-reconstruction/regex/UriFilter pipeline real text chunks do.
+/// `bitmap` may be a crop of the full rasterized page (see
+/// ocrChunksTiled) - `yOffsetPx` shifts each word's box back into the full
+/// page's own pixel space before Geometry.pixelBoxToPoint (which needs
+/// `fullBitmapSize`, not the crop's own size) converts it.
+let private wordsFromBitmap
+    (engine: SKBitmap -> OcrWord list)
+    (pageSize: float * float)
+    (fullBitmapSize: int * int)
+    (yOffsetPx: int)
+    (bitmap: SKBitmap)
+    : Chunk list =
     engine bitmap
     |> List.map (fun word ->
-        let box = Geometry.pixelBoxToPoint pageSize (bitmap.Width, bitmap.Height) word.Box
+        let shiftedBox = SKRectI(word.Box.Left, word.Box.Top + yOffsetPx, word.Box.Right, word.Box.Bottom + yOffsetPx)
+        let box = Geometry.pixelBoxToPoint pageSize fullBitmapSize shiftedBox
         let rect = Rectangle(float32 box.Left, float32 box.Bottom, float32 box.Width, float32 box.Height)
         // OCR gives whole words, not sub-word glyph runs, so a modest
         // fraction of the word's own height is a reasonable stand-in for
@@ -326,6 +330,53 @@ let private ocrChunks
         // insert a space between adjacent chunks, and adjacent OCR words
         // almost always need one.
         { Text = word.Text; Rect = rect; SpaceWidth = rect.GetHeight() * 0.3f })
+
+/// How many overlapping horizontal strips ocrChunksTiled splits a page
+/// into, and by how much each strip overlaps its neighbor - enough that a
+/// text line straddling a tile boundary still lands fully inside at least
+/// one tile. Not hand-tuned to any one document: tested at 4/6/8 strips
+/// against the real flyer that motivated this, all three found the URL a
+/// whole-page pass missed.
+let private tileCount = 6
+let private tileOverlapFraction = 0.5
+
+/// Splits `bitmap` into `tileCount` overlapping horizontal strips and OCRs
+/// each independently - the fallback for when a single whole-page pass
+/// finds nothing linkable (see findOnPage). Confirmed against a real
+/// flyer: Tesseract's own layout analysis can silently skip a text region
+/// entirely on a busy graphic page - not a recognition problem (the exact
+/// same pixels, cropped down to roughly this size, read perfectly), a
+/// segmentation one. Feeding it a smaller, more homogeneous region at a
+/// time is what actually fixes that, unlike a color/contrast preprocessing
+/// pass, which risks corrupting text that was already reading correctly
+/// (confirmed: a full-page grayscale + high-contrast pass also found the
+/// same URL, but also flipped one already-correct word - "DR," into
+/// "Dk," - since it alters every pixel; tiling never does, only which
+/// sub-region Tesseract sees at once).
+let private ocrChunksTiled (engine: SKBitmap -> OcrWord list) (pageSize: float * float) (bitmap: SKBitmap) : Chunk list =
+    let fullSize = bitmap.Width, bitmap.Height
+    let stripHeight = bitmap.Height / tileCount
+    let step = max 1 (int (float stripHeight * (1.0 - tileOverlapFraction)))
+
+    [ let mutable y = 0
+
+      while y < bitmap.Height do
+          let h = min stripHeight (bitmap.Height - y)
+
+          if h > 0 then
+              use strip = new SKBitmap(bitmap.Width, h)
+              use canvas = new SKCanvas(strip)
+
+              canvas.DrawBitmap(
+                  bitmap,
+                  SKRect(0f, float32 y, float32 bitmap.Width, float32 (y + h)),
+                  SKRect(0f, 0f, float32 bitmap.Width, float32 h),
+                  SKSamplingOptions()
+              )
+
+              yield! wordsFromBitmap engine pageSize fullSize y strip
+
+          y <- y + step ]
 
 /// Find every URL-shaped run of plain text on `pageNumber` that isn't
 /// already a live hyperlink, and turn each into a `QrLink` ready to be
@@ -349,7 +400,28 @@ let findOnPage (options: ScanOptions) (pdfBytes: byte[]) (doc: PdfDocument) (pag
         | Some engine ->
             options.Trace(sprintf "  page %d: trying OCR" pageNumber)
             let size = page.GetPageSize()
-            ocrChunks engine pdfBytes (float (size.GetWidth()), float (size.GetHeight())) pageNumber
+            let pageSize = float (size.GetWidth()), float (size.GetHeight())
+            use bitmap = rasterizeOcrPage pdfBytes pageNumber
+            let wholeChunks = wordsFromBitmap engine pageSize (bitmap.Width, bitmap.Height) 0 bitmap
+
+            // Cheap probe: did the whole-page pass alone find anything
+            // linkable? findOnPage already runs OCR unconditionally on
+            // every page (see this function's own comment above) - paying
+            // for the much more expensive tiled fallback on every page
+            // too, regardless of whether it was ever needed, would
+            // compound badly across a multi-page PDF. Only escalate when
+            // the cheap pass came up empty, and only on the actual thing
+            // that matters (a URL-shaped candidate), not a raw word-count
+            // heuristic.
+            let foundSomething =
+                let linked, alreadyLinked = linkChunks options pageNumber existing wholeChunks
+                not (List.isEmpty linked && List.isEmpty alreadyLinked)
+
+            if foundSomething then
+                wholeChunks
+            else
+                options.Trace(sprintf "  page %d: OCR found nothing linkable, retrying tiled" pageNumber)
+                wholeChunks @ ocrChunksTiled engine pageSize bitmap
         | None -> []
 
     let chunks = realChunks @ ocrChunksFound

@@ -745,3 +745,38 @@ let ``does not add a duplicate annotation when OCR's near-miss escapes the overl
 
     Assert.Empty(linked.Links)
     Assert.Equal(1, (annotations (output.ToArray())).Length)
+
+[<Fact>]
+let ``escalates to tiled OCR when a whole-page pass finds nothing linkable`` () =
+    // Regression test for a real flyer: Tesseract's own layout analysis
+    // can silently skip a text region entirely on a busy graphic page,
+    // even though the exact same pixels read fine once isolated to a
+    // smaller area - findOnPage's tiled fallback exists to catch that
+    // (see its own comment). Faked here as "the whole-page bitmap finds
+    // nothing, some smaller crop does" rather than reproducing real OCR
+    // failure, since what's under test is the escalation logic itself,
+    // not Tesseract's accuracy - OcrTests.fs covers that against a real
+    // engine.
+    let pdf = blankPage PageSize.LETTER
+    let mutable reportedOnce = false
+
+    let fakeEngine (bitmap: SKBitmap) : OcrWord list =
+        // ocrDpi (TextLinker.fs) rasterizes a LETTER page's whole-page
+        // pass to ~3300px tall; every tile is a fraction of that - a
+        // generous cutoff well clear of both without depending on the
+        // exact tile count/overlap.
+        if bitmap.Height > 2000 then
+            []
+        elif reportedOnce then
+            []
+        else
+            reportedOnce <- true
+            [ { Text = "https://example.com/tiled-fallback"
+                Box = SKRectI(100, 20, 900, 60) } ]
+
+    let withOcr = { options with OcrEngine = Some fakeEngine }
+    use input = new MemoryStream(pdf)
+    let found = (PdfQrLinker.scan withOcr input).Links
+
+    Assert.Equal(1, found.Length)
+    Assert.Equal("https://example.com/tiled-fallback", found.Head.Uri)
