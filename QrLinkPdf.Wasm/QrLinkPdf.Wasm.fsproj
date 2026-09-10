@@ -52,6 +52,9 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <!-- Shared with the desktop CLI's own Ocr.fs - same pattern
+         QrLinkPdf.Wasm.SmokeTest.fsproj already uses for TestPdfs.fs. -->
+    <Compile Include="../TesseractWords.fs" />
     <Compile Include="Ocr.fs" />
     <Compile Include="Main.fs" />
     <Compile Include="Startup.fs" />

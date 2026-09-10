@@ -20,30 +20,7 @@ open Tesseract
 let tryCreate (tessdataPath: string) : (SKBitmap -> OcrWord list) option =
     try
         let engine = new TesseractEngine(tessdataPath, "eng", EngineMode.Default)
-
-        Some(fun (bitmap: SKBitmap) ->
-            // Tesseract.CrossPlatform.SkiaSharp's SkiaPixConverter feeds the
-            // bitmap's pixels to Pix directly - no PNG-encode-then-decode
-            // round trip through Pix.LoadFromMemory needed.
-            use pix = SkiaPixConverter.ToPix(bitmap)
-            use page = engine.Process(pix)
-            use iter = page.GetIterator()
-            iter.Begin()
-
-            [ let mutable go = true
-
-              while go do
-                  match iter.TryGetBoundingBox(PageIteratorLevel.Word) with
-                  | true, rect ->
-                      let text = iter.GetText(PageIteratorLevel.Word)
-
-                      if not (String.IsNullOrWhiteSpace text) then
-                          yield
-                              { Text = text.Trim()
-                                Box = SKRectI(rect.X1, rect.Y1, rect.X2, rect.Y2) }
-                  | false, _ -> ()
-
-                  go <- iter.Next(PageIteratorLevel.Word) ])
+        Some(TesseractWords.ofBitmap engine)
     with ex ->
         // TesseractEngine's constructor throws through a layer of reflection
         // (InteropRuntimeImplementer builds its native bindings dynamically),

@@ -6,6 +6,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <Compile Include="TesseractWords.fs" />
     <Compile Include="Ocr.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>

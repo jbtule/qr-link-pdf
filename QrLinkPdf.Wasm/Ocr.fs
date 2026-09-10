@@ -48,27 +48,4 @@ let create () : SKBitmap -> OcrWord list =
     fun bitmap ->
         match engine with
         | None -> []
-        | Some engine ->
-            // The browser-wasm native Tesseract build has no image codecs
-            // linked in, so feed it already-decoded pixels directly via
-            // SkiaSharp instead of Pix.LoadFromMemory (see
-            // Tesseract.Native.browser-wasm's own README).
-            use pix = SkiaPixConverter.ToPix(bitmap)
-            use page = engine.Process(pix)
-            use iter = page.GetIterator()
-            iter.Begin()
-
-            [ let mutable go = true
-
-              while go do
-                  match iter.TryGetBoundingBox(PageIteratorLevel.Word) with
-                  | true, rect ->
-                      let text = iter.GetText(PageIteratorLevel.Word)
-
-                      if not (String.IsNullOrWhiteSpace text) then
-                          yield
-                              { Text = text.Trim()
-                                Box = SKRectI(rect.X1, rect.Y1, rect.X2, rect.Y2) }
-                  | false, _ -> ()
-
-                  go <- iter.Next(PageIteratorLevel.Word) ]
+        | Some engine -> TesseractWords.ofBitmap engine bitmap
