@@ -22,9 +22,10 @@ let tryCreate (tessdataPath: string) : (SKBitmap -> OcrWord list) option =
         let engine = new TesseractEngine(tessdataPath, "eng", EngineMode.Default)
 
         Some(fun (bitmap: SKBitmap) ->
-            use image = SKImage.FromBitmap(bitmap)
-            use data = image.Encode(SKEncodedImageFormat.Png, 100)
-            use pix = Pix.LoadFromMemory(data.ToArray())
+            // Tesseract.CrossPlatform.SkiaSharp's SkiaPixConverter feeds the
+            // bitmap's pixels to Pix directly - no PNG-encode-then-decode
+            // round trip through Pix.LoadFromMemory needed.
+            use pix = SkiaPixConverter.ToPix(bitmap)
             use page = engine.Process(pix)
             use iter = page.GetIterator()
             iter.Begin()

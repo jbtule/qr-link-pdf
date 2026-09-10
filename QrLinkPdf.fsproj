@@ -30,8 +30,20 @@
          Tesseract.Native.runtime.<rid> package referenced directly instead,
          because going through the meta-package silently dropped the native
          files (resolved to NuGet's "no content" placeholder) - fixed
-         upstream in 5.5.2.2, confirmed here before switching. -->
-    <PackageReference Include="Tesseract.CrossPlatform" Version="5.5.2.2" />
+         upstream in 5.5.2.2, confirmed here before switching.
+
+         PREVIEW 5.5.2.200-preview.0c0188f, not yet on nuget.org - restored
+         from the local feed in ./NuGet.Config (gitignored; see its own
+         comment), from
+         https://github.com/jbtule/tesseract-nuget-platforms/actions/runs/34429232106.
+         Pulled in for Tesseract.CrossPlatform.SkiaSharp below, which is new
+         in this preview. -->
+    <PackageReference Include="Tesseract.CrossPlatform" Version="5.5.2.200-preview.0c0188f" />
+    <!-- Direct SKBitmap/Pix interop (see Ocr.fs) instead of the PNG-encode
+         round trip the stock Pix.LoadFromMemory needed - also what makes
+         OCR work at all under browser-wasm (QrLinkPdf.Wasm/Ocr.fs), whose
+         native Tesseract build has no image codecs linked in. -->
+    <PackageReference Include="Tesseract.CrossPlatform.SkiaSharp" Version="5.5.2.200-preview.0c0188f" />
   </ItemGroup>
 
 </Project>

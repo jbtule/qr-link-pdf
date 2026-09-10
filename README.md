@@ -161,27 +161,23 @@ further — at 200 DPI the test handout drops from 7 codes found to 5.
 
 ### OCR in the browser
 
-The "Also try OCR" checkbox is backed by
-[tesseract-wasm](https://github.com/robertknight/tesseract-wasm)'s low-level,
-synchronous engine, run entirely locally the same way everything else here
-is — nothing is uploaded. For local dev, vendor its files and get English
-trained data once:
+The "Also try OCR" checkbox is backed by the same
+[`Tesseract.CrossPlatform`](https://github.com/jbtule/tesseract-nuget-platforms)
+engine the desktop CLI uses (see its own `--ocr yes` section above) —
+`Tesseract.Native.browser-wasm` statically links real Tesseract/Leptonica
+into `dotnet.wasm` at publish time, so it runs entirely in-process and
+locally the same way everything else here does. Nothing is uploaded. It
+still needs English trained data once for local dev:
 
 ```sh
-npm pack tesseract-wasm@0.11.0
-tar xzf tesseract-wasm-0.11.0.tgz
-mkdir -p QrLinkPdf.Wasm/wwwroot/tesseract-wasm
-cp package/dist/lib.js package/dist/tesseract-core*.wasm QrLinkPdf.Wasm/wwwroot/tesseract-wasm/
-rm -rf package tesseract-wasm-0.11.0.tgz
-
 mkdir -p QrLinkPdf.Wasm/wwwroot/tessdata
 curl -L -o QrLinkPdf.Wasm/wwwroot/tessdata/eng.traineddata \
   https://github.com/tesseract-ocr/tessdata_fast/raw/main/eng.traineddata
 ```
 
-Neither is checked in — same reasoning as the CLI's `tessdata/`. In the
-deployed app these are hosted on the Cloudflare asset project alongside the
-.NET runtime, not GitHub Pages.
+Not checked in — same reasoning as the CLI's `tessdata/`. In the deployed
+app this is hosted on the Cloudflare asset project alongside the .NET
+runtime, not GitHub Pages.
 
 ### Icons
 

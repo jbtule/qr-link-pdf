@@ -29,9 +29,13 @@
          4.150.1 and SkiaSharp's startup version check throws
          "native libSkiaSharp (150.0) is incompatible ... range [151.0, 152.0)".
          That only shows up on Linux, so it passes locally on a Mac and fails
-         in CI. -->
-    <PackageReference Include="SkiaSharp" Version="4.151.1" />
-    <PackageReference Include="SkiaSharp.NativeAssets.Linux.NoDependencies" Version="4.151.1" />
+         in CI.
+
+         Bumped to 4.152.0 (from 4.151.1) because Tesseract.CrossPlatform.SkiaSharp
+         (see Ocr.fs) requires SkiaSharp >= 4.152.0 - same reasoning, just a
+         higher floor now. -->
+    <PackageReference Include="SkiaSharp" Version="4.152.0" />
+    <PackageReference Include="SkiaSharp.NativeAssets.Linux.NoDependencies" Version="4.152.0" />
   </ItemGroup>
 
 </Project>

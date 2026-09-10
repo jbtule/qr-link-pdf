@@ -32,8 +32,12 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="SkiaSharp" Version="4.151.1" />
-    <PackageReference Include="SkiaSharp.NativeAssets.WebAssembly" Version="4.151.1" />
+    <!-- Kept in step with QrLinkPdf.Core's own pin (see its fsproj) -
+         mismatched versions here produce an NU1605 downgrade warning and a
+         conflicting-reference MSB3277 build warning (harmless in practice,
+         but noisy - confirmed by bumping this one). -->
+    <PackageReference Include="SkiaSharp" Version="4.152.0" />
+    <PackageReference Include="SkiaSharp.NativeAssets.WebAssembly" Version="4.152.0" />
   </ItemGroup>
 
   <ItemGroup>

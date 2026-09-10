@@ -9,3 +9,9 @@ obj/
 tessdata/
 QrLinkPdf.Wasm/wwwroot/tessdata/
 QrLinkPdf.Wasm/wwwroot/tesseract-wasm/
+
+# Unpublished preview .nupkgs from a jbtule/tesseract-nuget-platforms test
+# run (not on nuget.org yet) plus the local feed nuget.config pointing at
+# them - see NuGet.Config's own comment.
+.local-nuget-feed/
+NuGet.Config

@@ -65,9 +65,35 @@
     <!-- Keep managed and native Skia on the same version. ZXing.Net.Bindings.SkiaSharp
          forces managed SkiaSharp to 4.151.1, while PDFtoImage's browser dependency
          group would otherwise bring the 4.150.1 native archive - and SkiaSharp's
-         managed/native contract is a raw C ABI with no version negotiation. -->
-    <PackageReference Include="SkiaSharp" Version="4.151.1" />
-    <PackageReference Include="SkiaSharp.NativeAssets.WebAssembly" Version="4.151.1" />
+         managed/native contract is a raw C ABI with no version negotiation.
+
+         Bumped to 4.152.0 (from 4.151.1): Tesseract.CrossPlatform.SkiaSharp
+         below requires it. -->
+    <PackageReference Include="SkiaSharp" Version="4.152.0" />
+    <PackageReference Include="SkiaSharp.NativeAssets.WebAssembly" Version="4.152.0" />
+
+    <!-- Real Tesseract OCR in-process under WebAssembly, replacing the old
+         JS-interop bridge to tesseract-wasm (see git history for Ocr.fs and
+         wwwroot/ocr.js) - same TesseractEngine/Page API as the desktop CLI's
+         own Ocr.fs, from https://github.com/jbtule/tesseract-nuget-platforms.
+
+         PREVIEW 5.5.2.200-preview.0c0188f, not yet on nuget.org - restored
+         from the local feed in ../NuGet.Config (gitignored; see its own
+         comment), from
+         https://github.com/jbtule/tesseract-nuget-platforms/actions/runs/34429232106.
+         This is the first release with browser-wasm support at all. -->
+    <PackageReference Include="Tesseract.CrossPlatform" Version="5.5.2.200-preview.0c0188f" />
+    <!-- Statically links tesseract.a/leptonica.a into dotnet.wasm via
+         buildTransitive - no NativeFileReference authoring needed here, see
+         its own README. Deliberately not part of Tesseract.Native (that
+         meta-package is desktop-only runtime.<rid> packages); a wasm
+         consumer adds this one explicitly instead. -->
+    <PackageReference Include="Tesseract.Native.browser-wasm" Version="5.5.2.200-preview.0c0188f" />
+    <!-- The browser-wasm native Tesseract build has no image codecs linked
+         in (see Tesseract.Native.browser-wasm's own README) - this converts
+         an already-decoded SKBitmap straight to a Pix instead (see Ocr.fs),
+         same as the desktop CLI's Ocr.fs now does. -->
+    <PackageReference Include="Tesseract.CrossPlatform.SkiaSharp" Version="5.5.2.200-preview.0c0188f" />
   </ItemGroup>
 
   <ItemGroup>
