@@ -19,7 +19,8 @@ open System
 open System.IO
 open SkiaSharp
 open Tesseract
-open Xunit
+open AnyUnit.Style.FSharp.Test
+open AnyUnit.Style.Xunit
 open QrLinkPdf
 
 let private tessdataPath = Path.Combine(AppContext.BaseDirectory, "tessdata")
@@ -39,8 +40,8 @@ let private renderText (text: string) : SKBitmap =
     canvas.Flush()
     bitmap
 
-[<Fact>]
-let ``a real TesseractEngine recognizes real text via TesseractWords.ofBitmap`` () =
+let ``a real TesseractEngine recognizes real text via TesseractWords.ofBitmap`` () = test {
+    let! Assert = assertion
     if not (File.Exists(Path.Combine(tessdataPath, "eng.traineddata"))) then
         failwith
             $"Missing {tessdataPath}/eng.traineddata - see README's OCR setup \
@@ -61,9 +62,10 @@ let ``a real TesseractEngine recognizes real text via TesseractWords.ofBitmap`` 
     // just that some text came back.
     for word in words do
         Assert.True(word.Box.Width > 0 && word.Box.Height > 0, $"Degenerate box for \"{word.Text}\"")
+}
 
-[<Fact>]
-let ``a real TesseractEngine finds nothing worth reporting on a blank page`` () =
+let ``a real TesseractEngine finds nothing worth reporting on a blank page`` () = test {
+    let! Assert = assertion
     if not (File.Exists(Path.Combine(tessdataPath, "eng.traineddata"))) then
         failwith $"Missing {tessdataPath}/eng.traineddata - see README's OCR setup."
 
@@ -75,3 +77,4 @@ let ``a real TesseractEngine finds nothing worth reporting on a blank page`` () 
 
     let words = TesseractWords.ofBitmap engine bitmap
     Assert.Empty(words)
+}

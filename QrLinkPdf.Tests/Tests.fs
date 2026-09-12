@@ -3,7 +3,8 @@ module QrLinkPdf.Tests.Tests
 open System
 open System.IO
 open SkiaSharp
-open Xunit
+open AnyUnit.Style.FSharp.Test
+open AnyUnit.Style.Xunit
 open iText.Kernel.Geom
 open iText.Kernel.Pdf
 open iText.Kernel.Pdf.Annot
@@ -44,14 +45,15 @@ let private annotations (pdf: byte[]) =
 
 // ---------------------------------------------------------------- finding
 
-[<Fact>]
-let ``finds a single code and reports its payload`` () =
+let ``finds a single code and reports its payload`` () = test {
+    let! Assert = assertion
     let found = scan (single "https://example.com/hello")
     Assert.Equal(1, found.Length)
     Assert.Equal("https://example.com/hello", found.Head.Uri)
+}
 
-[<Fact>]
-let ``finds every code on a crowded page`` () =
+let ``finds every code on a crowded page`` () = test {
+    let! Assert = assertion
     let payloads = [ for i in 1..6 -> sprintf "https://example.com/%d" i ]
 
     let placements =
@@ -62,9 +64,10 @@ let ``finds every code on a crowded page`` () =
 
     let found = scan (build placements)
     Assert.Equal<string list>(List.sort payloads, uris found)
+}
 
-[<Fact>]
-let ``reports the page each code was found on`` () =
+let ``reports the page each code was found on`` () = test {
+    let! Assert = assertion
     let pdf =
         buildPages
             PageSize.LETTER
@@ -84,28 +87,32 @@ let ``reports the page each code was found on`` () =
           3, "https://example.com/three" ],
         byPage
     )
+}
 
-[<Fact>]
-let ``finds nothing in a PDF with no codes`` () =
+let ``finds nothing in a PDF with no codes`` () = test {
+    let! Assert = assertion
     Assert.Empty(scan (build []))
+}
 
-[<Fact>]
-let ``finds codes regardless of page size`` () =
+let ``finds codes regardless of page size`` () = test {
+    let! Assert = assertion
     for size in [ PageSize.LETTER; PageSize.A4; PageSize.A5 ] do
         let found = scan (buildPages size [ [ placement "https://example.com/x" |> sized 120f ] ])
         Assert.Equal(1, found.Length)
+}
 
-[<Fact>]
-let ``finds a code with its colours inverted`` () =
+let ``finds a code with its colours inverted`` () = test {
+    let! Assert = assertion
     // A QR code dropped into a brand-coloured box - light modules on a dark
     // background - rather than the usual dark-on-light.
     let pdf = build [ placement "https://example.com/inverted" |> degraded Inverted ]
     let found = scan pdf
     Assert.Equal(1, found.Length)
     Assert.Equal("https://example.com/inverted", found.Head.Uri)
+}
 
-[<Fact>]
-let ``treats two codes with the same payload as separate finds`` () =
+let ``treats two codes with the same payload as separate finds`` () = test {
+    let! Assert = assertion
     let pdf =
         build
             [ placement "https://example.com/same"
@@ -114,35 +121,39 @@ let ``treats two codes with the same payload as separate finds`` () =
     let found = scan pdf
     Assert.Equal(2, found.Length)
     Assert.All(found, fun l -> Assert.Equal("https://example.com/same", l.Uri))
+}
 
 // ---------------------------------------------------------------- filtering
 
-[<Fact>]
-let ``ignores payloads that aren't URLs`` () =
+let ``ignores payloads that aren't URLs`` () = test {
+    let! Assert = assertion
     let pdf =
         build
             [ placement "just some plain text"
               placement "BEGIN:VCARD\nFN:A Person\nEND:VCARD" |> at (330f, 500f) ]
 
     Assert.Empty(scan pdf)
+}
 
-[<Fact>]
-let ``upgrades a bare www payload to https`` () =
+let ``upgrades a bare www payload to https`` () = test {
+    let! Assert = assertion
     let found = scan (single "www.example.com/promo")
     Assert.Equal("https://www.example.com/promo", found.Head.Uri)
+}
 
-[<Theory>]
 [<InlineData("https://example.com/a")>]
 [<InlineData("http://example.com/b")>]
 [<InlineData("mailto:someone@example.com")>]
 [<InlineData("tel:+15555550123")>]
-let ``links any absolute URI`` (payload: string) =
+let ``links any absolute URI`` (payload: string) = test {
+    let! Assert = assertion
     let found = scan (single payload)
     Assert.Equal(1, found.Length)
     Assert.Equal(payload, found.Head.Uri)
+}
 
-[<Fact>]
-let ``honours a custom UriFilter`` () =
+let ``honours a custom UriFilter`` () = test {
+    let! Assert = assertion
     let pdf =
         build
             [ placement "https://example.com/keep"
@@ -157,9 +168,10 @@ let ``honours a custom UriFilter`` () =
 
     Assert.Equal(1, found.Length)
     Assert.Equal("https://example.com/keep", found.Head.Uri)
+}
 
-[<Fact>]
-let ``a UriFilter can rewrite the target`` () =
+let ``a UriFilter can rewrite the target`` () = test {
+    let! Assert = assertion
     let tracked =
         { options with
             UriFilter = fun text -> Some(text + "?utm_source=qr") }
@@ -167,11 +179,12 @@ let ``a UriFilter can rewrite the target`` () =
     use input = new MemoryStream(single "https://example.com/page")
     let found = (PdfQrLinker.scan tracked input).Links
     Assert.Equal("https://example.com/page?utm_source=qr", found.Head.Uri)
+}
 
 // ---------------------------------------------------------------- geometry
 
-[<Fact>]
-let ``reports the code's position in PDF points`` () =
+let ``reports the code's position in PDF points`` () = test {
+    let! Assert = assertion
     // Deliberately off-centre and nearer the top, so a flipped or transposed
     // axis can't accidentally land in the right place.
     let expected = placement "https://example.com/where" |> at (140f, 560f) |> sized 150f
@@ -190,9 +203,10 @@ let ``reports the code's position in PDF points`` () =
     // And it should be roughly the size of the code we drew.
     Assert.InRange(found.Width, float expected.Size * 0.7, float expected.Size * 1.4)
     Assert.InRange(found.Height, float expected.Size * 0.7, float expected.Size * 1.4)
+}
 
-[<Fact>]
-let ``distinguishes top from bottom of the page`` () =
+let ``distinguishes top from bottom of the page`` () = test {
+    let! Assert = assertion
     // The y-flip between image space and PDF space is the easiest thing to get
     // backwards, and a symmetric layout would hide it.
     let pdf =
@@ -207,9 +221,10 @@ let ``distinguishes top from bottom of the page`` () =
     Assert.True(high.Bottom > low.Bottom, "the code drawn higher up should have the larger Y")
     Assert.InRange(low.Bottom, 40.0, 110.0)
     Assert.InRange(high.Bottom, 580.0, 650.0)
+}
 
-[<Fact>]
-let ``keeps every found code inside its page`` () =
+let ``keeps every found code inside its page`` () = test {
+    let! Assert = assertion
     let pdf = build [ placement "https://example.com/a"; placement "https://example.com/b" |> at (380f, 620f) ]
 
     use doc = new PdfDocument(new PdfReader(new MemoryStream(pdf)))
@@ -220,11 +235,12 @@ let ``keeps every found code inside its page`` () =
         Assert.InRange(l.Bottom, 0.0, float (size.GetHeight()))
         Assert.True(l.Right <= float (size.GetWidth()), "right edge inside the page")
         Assert.True(l.Top <= float (size.GetHeight()), "top edge inside the page")
+}
 
 // ---------------------------------------------------------------- annotating
 
-[<Fact>]
-let ``writes one URI annotation per code found`` () =
+let ``writes one URI annotation per code found`` () = test {
+    let! Assert = assertion
     let pdf = build [ placement "https://example.com/one"; placement "https://example.com/two" |> at (330f, 500f) ]
 
     let output, links = link pdf
@@ -232,9 +248,10 @@ let ``writes one URI annotation per code found`` () =
 
     Assert.Equal(2, links.Length)
     Assert.Equal<string list>(uris links, written |> List.map (fun (_, uri, _) -> uri) |> List.sort)
+}
 
-[<Fact>]
-let ``puts each annotation where the code was found`` () =
+let ``puts each annotation where the code was found`` () = test {
+    let! Assert = assertion
     let output, links = link (single "https://example.com/spot")
     let _, _, rect = (annotations output).Head
     let found = links.Head
@@ -243,9 +260,10 @@ let ``puts each annotation where the code was found`` () =
     Assert.Equal(found.Bottom, float (rect.GetBottom()), 1)
     Assert.Equal(found.Width, float (rect.GetWidth()), 1)
     Assert.Equal(found.Height, float (rect.GetHeight()), 1)
+}
 
-[<Fact>]
-let ``gives annotations an invisible border`` () =
+let ``gives annotations an invisible border`` () = test {
+    let! Assert = assertion
     // Otherwise the reader draws a box over the QR code.
     let output, _ = link (single "https://example.com/border")
 
@@ -261,17 +279,19 @@ let ``gives annotations an invisible border`` () =
               | _ -> () ]
 
     Assert.Equal<int list list>([ [ 0; 0; 0 ] ], borders)
+}
 
-[<Fact>]
-let ``annotates the correct page`` () =
+let ``annotates the correct page`` () = test {
+    let! Assert = assertion
     let pdf =
         buildPages PageSize.LETTER [ []; [ placement "https://example.com/page-two" ] ]
 
     let output, _ = link pdf
     Assert.Equal<(int * string) list>([ 2, "https://example.com/page-two" ], annotations output |> List.map (fun (p, u, _) -> p, u))
+}
 
-[<Fact>]
-let ``leaves a PDF without codes structurally intact`` () =
+let ``leaves a PDF without codes structurally intact`` () = test {
+    let! Assert = assertion
     let pdf = build []
     let output, links = link pdf
 
@@ -281,18 +301,20 @@ let ``leaves a PDF without codes structurally intact`` () =
     use before = new PdfDocument(new PdfReader(new MemoryStream(pdf)))
     use after = new PdfDocument(new PdfReader(new MemoryStream(output)))
     Assert.Equal(before.GetNumberOfPages(), after.GetNumberOfPages())
+}
 
-[<Fact>]
-let ``preserves page count and size`` () =
+let ``preserves page count and size`` () = test {
+    let! Assert = assertion
     let pdf = buildPages PageSize.A4 [ [ placement "https://example.com/1" ]; []; [ placement "https://example.com/3" ] ]
     let output, _ = link pdf
 
     use doc = new PdfDocument(new PdfReader(new MemoryStream(output)))
     Assert.Equal(3, doc.GetNumberOfPages())
     Assert.Equal(float (PageSize.A4.GetWidth()), float (doc.GetPage(1).GetPageSize().GetWidth()), 1)
+}
 
-[<Fact>]
-let ``the result can be linked again without duplicating annotations`` () =
+let ``the result can be linked again without duplicating annotations`` () = test {
+    let! Assert = assertion
     // A second pass should recognize the code it already linked and leave it
     // alone, rather than adding a duplicate annotation over it.
     let once, _ = link (single "https://example.com/again")
@@ -306,9 +328,10 @@ let ``the result can be linked again without duplicating annotations`` () =
     Assert.Equal(1, result.AlreadyLinked.Length)
     Assert.Equal("https://example.com/again", result.AlreadyLinked.Head.Uri)
     Assert.Equal(1, (annotations twice).Length)
+}
 
-[<Fact>]
-let ``does not re-link a QR code that already has a link annotation`` () =
+let ``does not re-link a QR code that already has a link annotation`` () = test {
+    let! Assert = assertion
     let pdf = buildWithExistingLink [ placement "https://example.com/already-linked-qr" ] "https://example.com/already-linked-qr"
 
     use input = new MemoryStream(pdf)
@@ -317,9 +340,10 @@ let ``does not re-link a QR code that already has a link annotation`` () =
     Assert.Empty(result.Links)
     Assert.Equal(1, result.AlreadyLinked.Length)
     Assert.Equal("https://example.com/already-linked-qr", result.AlreadyLinked.Head.Uri)
+}
 
-[<Fact>]
-let ``reports an already-linked QR code separately from newly linked ones`` () =
+let ``reports an already-linked QR code separately from newly linked ones`` () = test {
+    let! Assert = assertion
     let placements =
         [ placement "https://example.com/fresh"
           placement "https://example.com/stale" |> at (330f, 500f) ]
@@ -333,11 +357,12 @@ let ``reports an already-linked QR code separately from newly linked ones`` () =
     Assert.Equal("https://example.com/fresh", result.Links.Head.Uri)
     Assert.Equal(1, result.AlreadyLinked.Length)
     Assert.Equal("https://example.com/stale", result.AlreadyLinked.Head.Uri)
+}
 
 // ---------------------------------------------------------------- plumbing
 
-[<Fact>]
-let ``leaves the caller's streams open`` () =
+let ``leaves the caller's streams open`` () = test {
+    let! Assert = assertion
     use input = new MemoryStream(single "https://example.com/streams")
     use output = new MemoryStream()
 
@@ -346,9 +371,10 @@ let ``leaves the caller's streams open`` () =
     Assert.True(input.CanRead, "input should still be open")
     Assert.True(output.CanWrite, "output should still be open")
     Assert.True(output.Length > 0L)
+}
 
-[<Fact>]
-let ``reads a forward-only stream`` () =
+let ``reads a forward-only stream`` () = test {
+    let! Assert = assertion
     // What a browser upload or a pipe looks like: no seeking, no known length.
     let bytes = single "https://example.com/forward"
 
@@ -357,27 +383,30 @@ let ``reads a forward-only stream`` () =
 
     let found = (PdfQrLinker.scan options input).Links
     Assert.Equal(1, found.Length)
+}
 
-[<Fact>]
-let ``sends diagnostics to Trace`` () =
+let ``sends diagnostics to Trace`` () = test {
+    let! Assert = assertion
     let lines = ResizeArray<string>()
 
     use input = new MemoryStream(single "https://example.com/trace")
     PdfQrLinker.scan { options with Trace = lines.Add } input |> ignore
 
     Assert.NotEmpty(lines)
-    Assert.Contains(lines, fun line -> line.Contains "bitmap")
+    Assert.Contains(lines, fun line -> line.Contains "bitmap") |> ignore
+}
 
-[<Fact>]
-let ``says nothing when Trace is left at its default`` () =
+let ``says nothing when Trace is left at its default`` () = test {
+    let! Assert = assertion
     // The default is `ignore`; this just pins that scanning is silent unless
     // asked, since the library has no business writing to the console.
     use input = new MemoryStream(single "https://example.com/quiet")
     let found = (PdfQrLinker.scan ScanOptions.Default input).Links
     Assert.Equal(1, found.Length)
+}
 
-[<Fact>]
-let ``linkFile round-trips through the filesystem`` () =
+let ``linkFile round-trips through the filesystem`` () = test {
+    let! Assert = assertion
     let directory = Path.Combine(Path.GetTempPath(), "qr-link-pdf-tests", Guid.NewGuid().ToString("n"))
     Directory.CreateDirectory(directory) |> ignore
 
@@ -393,9 +422,10 @@ let ``linkFile round-trips through the filesystem`` () =
         Assert.Equal<string list>([ "https://example.com/on-disk" ], annotations (File.ReadAllBytes output) |> List.map (fun (_, u, _) -> u))
     finally
         Directory.Delete(directory, true)
+}
 
-[<Fact>]
-let ``finds a code drawn by an AcroForm field`` () =
+let ``finds a code drawn by an AcroForm field`` () = test {
+    let! Assert = assertion
     // Acrobat's barcode fields put the code in the field's appearance stream,
     // not the page content, so it exists only when form rendering is on. A real
     // document of these scanned as blank until PdfQrLinker enabled it.
@@ -404,55 +434,62 @@ let ``finds a code drawn by an AcroForm field`` () =
     let found = scan pdf
     Assert.Equal(1, found.Length)
     Assert.Equal("https://example.com/form-field", found.Head.Uri)
+}
 
-[<Fact>]
-let ``annotates a code drawn by an AcroForm field`` () =
+let ``annotates a code drawn by an AcroForm field`` () = test {
+    let! Assert = assertion
     let output, links = link (buildFormField "https://example.com/form-field" (200f, 300f) 150f)
 
     Assert.Equal(1, links.Length)
     Assert.Equal<string list>([ "https://example.com/form-field" ], annotations output |> List.map (fun (_, u, _) -> u))
+}
 
 // ------------------------------------------------------------ text-linking
 
-[<Fact>]
-let ``finds a plain-text URL mid-sentence`` () =
+let ``finds a plain-text URL mid-sentence`` () = test {
+    let! Assert = assertion
     let pdf = textParagraph "Visit https://example.com/hello today." (72f, 700f) 400f
 
     let found = scan pdf
     Assert.Equal(1, found.Length)
     Assert.Equal("https://example.com/hello", found.Head.Uri)
+}
 
-[<Fact>]
-let ``finds a URL split across two text runs on the same line`` () =
+let ``finds a URL split across two text runs on the same line`` () = test {
+    let! Assert = assertion
     let text = "See https://example.com/split-here for details."
     let pdf = textParagraphSplit text (text.IndexOf "split") (72f, 700f) 400f
 
     let found = scan pdf
     Assert.Equal(1, found.Length)
     Assert.Equal("https://example.com/split-here", found.Head.Uri)
+}
 
-[<Fact>]
-let ``trims trailing punctuation from a URL in prose`` () =
+let ``trims trailing punctuation from a URL in prose`` () = test {
+    let! Assert = assertion
     let pdf = textParagraph "See (https://example.com/hello), thanks." (72f, 700f) 400f
 
     let found = scan pdf
     Assert.Equal(1, found.Length)
     Assert.Equal("https://example.com/hello", found.Head.Uri)
+}
 
-[<Fact>]
-let ``does not re-link text that already has a link annotation`` () =
+let ``does not re-link text that already has a link annotation`` () = test {
+    let! Assert = assertion
     let pdf =
         textWithExistingLink "Visit https://example.com/already-linked today." "https://example.com/already-linked" (72f, 700f) 400f
 
     Assert.Empty(scan pdf)
+}
 
-[<Fact>]
-let ``ignores plain text that isn't URL-shaped`` () =
+let ``ignores plain text that isn't URL-shaped`` () = test {
+    let! Assert = assertion
     let pdf = textParagraph "Just an ordinary sentence with no links in it." (72f, 700f) 400f
     Assert.Empty(scan pdf)
+}
 
-[<Fact>]
-let ``merges QR and text-derived links into one scan result`` () =
+let ``merges QR and text-derived links into one scan result`` () = test {
+    let! Assert = assertion
     let pdf =
         buildQrAndText
             "https://example.com/qr"
@@ -464,9 +501,10 @@ let ``merges QR and text-derived links into one scan result`` () =
 
     let found = uris (scan pdf)
     Assert.Equal<string list>([ "https://example.com/qr"; "https://example.com/text" ], found)
+}
 
-[<Fact>]
-let ``honours a custom UriFilter for text-detected URLs too`` () =
+let ``honours a custom UriFilter for text-detected URLs too`` () = test {
+    let! Assert = assertion
     let pdf = textParagraph "See https://elsewhere.test/drop for details." (72f, 700f) 400f
 
     let onlyExample =
@@ -475,9 +513,10 @@ let ``honours a custom UriFilter for text-detected URLs too`` () =
 
     use input = new MemoryStream(pdf)
     Assert.Empty((PdfQrLinker.scan onlyExample input).Links)
+}
 
-[<Fact>]
-let ``a text-derived link gets the same invisible-border annotation as a QR one`` () =
+let ``a text-derived link gets the same invisible-border annotation as a QR one`` () = test {
+    let! Assert = assertion
     let output, links = link (textParagraph "Visit https://example.com/text-link now." (72f, 700f) 400f)
 
     Assert.Equal(1, links.Length)
@@ -494,16 +533,18 @@ let ``a text-derived link gets the same invisible-border annotation as a QR one`
               | _ -> () ]
 
     Assert.Equal<int list list>([ [ 0; 0; 0 ] ], border)
+}
 
 // ------------------------------------------------------ bare-domain matching
 
-[<Fact>]
-let ``ignores a bare domain by default`` () =
+let ``ignores a bare domain by default`` () = test {
+    let! Assert = assertion
     let pdf = textParagraph "Get the app: qrco.de/trails-end" (72f, 700f) 400f
     Assert.Empty(scan pdf)
+}
 
-[<Fact>]
-let ``finds a bare domain when opted in`` () =
+let ``finds a bare domain when opted in`` () = test {
+    let! Assert = assertion
     let pdf = textParagraph "Get the app: qrco.de/trails-end" (72f, 700f) 400f
     let bareDomains = { options with MatchBareDomains = true }
 
@@ -512,25 +553,28 @@ let ``finds a bare domain when opted in`` () =
 
     Assert.Equal(1, found.Length)
     Assert.Equal("https://qrco.de/trails-end", found.Head.Uri)
+}
 
-[<Fact>]
-let ``does not mistake a decimal figure with a slash for a domain`` () =
+let ``does not mistake a decimal figure with a slash for a domain`` () = test {
+    let! Assert = assertion
     let pdf = textParagraph "See section 3.14/2 for the formula." (72f, 700f) 400f
     let bareDomains = { options with MatchBareDomains = true }
 
     use input = new MemoryStream(pdf)
     Assert.Empty((PdfQrLinker.scan bareDomains input).Links)
+}
 
-[<Fact>]
-let ``does not mistake a version number with a slash for a domain`` () =
+let ``does not mistake a version number with a slash for a domain`` () = test {
+    let! Assert = assertion
     let pdf = textParagraph "Requires v1.2/beta or later." (72f, 700f) 400f
     let bareDomains = { options with MatchBareDomains = true }
 
     use input = new MemoryStream(pdf)
     Assert.Empty((PdfQrLinker.scan bareDomains input).Links)
+}
 
-[<Fact>]
-let ``does not double-count a scheme URL as a bare domain too`` () =
+let ``does not double-count a scheme URL as a bare domain too`` () = test {
+    let! Assert = assertion
     let pdf = textParagraph "Visit https://qrco.de/trails-end today." (72f, 700f) 400f
     let bareDomains = { options with MatchBareDomains = true }
 
@@ -539,9 +583,10 @@ let ``does not double-count a scheme URL as a bare domain too`` () =
 
     Assert.Equal(1, found.Length)
     Assert.Equal("https://qrco.de/trails-end", found.Head.Uri)
+}
 
-[<Fact>]
-let ``honours a custom UriFilter for bare domains too`` () =
+let ``honours a custom UriFilter for bare domains too`` () = test {
+    let! Assert = assertion
     let pdf = textParagraph "Get the app: qrco.de/trails-end" (72f, 700f) 400f
 
     let onlyExample =
@@ -551,17 +596,19 @@ let ``honours a custom UriFilter for bare domains too`` () =
 
     use input = new MemoryStream(pdf)
     Assert.Empty((PdfQrLinker.scan onlyExample input).Links)
+}
 
 // ------------------------------------------------------------- OCR fallback
 
-[<Fact>]
-let ``does nothing on a text-free page when no OcrEngine is set`` () =
+let ``does nothing on a text-free page when no OcrEngine is set`` () = test {
+    let! Assert = assertion
     // ScanOptions.OcrEngine defaults to None - this pins that a page with
     // zero extractable text just comes back empty, not an error.
     Assert.Empty(scan (blankPage PageSize.LETTER))
+}
 
-[<Fact>]
-let ``finds a URL via OCR on a page with no extractable text`` () =
+let ``finds a URL via OCR on a page with no extractable text`` () = test {
+    let! Assert = assertion
     let fakeWord: OcrWord =
         { Text = "https://example.com/ocr"
           Box = SKRectI(100, 100, 500, 140) }
@@ -577,9 +624,10 @@ let ``finds a URL via OCR on a page with no extractable text`` () =
     Assert.Equal("https://example.com/ocr", found.Head.Uri)
     Assert.InRange(found.Head.Left, 0.0, 612.0)
     Assert.InRange(found.Head.Bottom, 0.0, 792.0)
+}
 
-[<Fact>]
-let ``still runs OCR on a page that already has some real text`` () =
+let ``still runs OCR on a page that already has some real text`` () = test {
+    let! Assert = assertion
     // A page can have a little real text (page numbers, a heading) while
     // its body copy is flattened to vector outlines elsewhere on the same
     // page - a "skip OCR if anything was found" trigger would miss that
@@ -595,9 +643,10 @@ let ``still runs OCR on a page that already has some real text`` () =
 
     Assert.Equal(1, found.Length)
     Assert.Equal("https://example.com/ocr-found-it", found.Head.Uri)
+}
 
-[<Fact>]
-let ``skips OCR'd text that already has a link annotation`` () =
+let ``skips OCR'd text that already has a link annotation`` () = test {
+    let! Assert = assertion
     // The existing annotation covers the whole page, so it overlaps
     // whatever pixel box the fake engine reports regardless of the exact
     // pixel-to-point conversion.
@@ -609,9 +658,10 @@ let ``skips OCR'd text that already has a link annotation`` () =
 
     use input = new MemoryStream(pdf)
     Assert.Empty((PdfQrLinker.scan withOcr input).Links)
+}
 
-[<Fact>]
-let ``an OCR-derived link gets annotated like any other`` () =
+let ``an OCR-derived link gets annotated like any other`` () = test {
+    let! Assert = assertion
     let withOcr =
         { options with
             OcrEngine = Some(fun _ -> [ { Text = "https://example.com/ocr-linked"; Box = SKRectI(100, 100, 500, 140) } ]) }
@@ -622,9 +672,10 @@ let ``an OCR-derived link gets annotated like any other`` () =
 
     Assert.Equal(1, links.Length)
     Assert.Equal<string list>([ "https://example.com/ocr-linked" ], annotations (output.ToArray()) |> List.map (fun (_, u, _) -> u))
+}
 
-[<Fact>]
-let ``does not duplicate a URL that OCR reports right next to where real text found it`` () =
+let ``does not duplicate a URL that OCR reports right next to where real text found it`` () = test {
+    let! Assert = assertion
     // Real text and OCR can disagree on a word's exact vertical extent for
     // the same visible line - font-metric ascent/descent vs OCR's tight ink
     // bounding box - closely enough to land with zero literal rectangle
@@ -659,9 +710,10 @@ let ``does not duplicate a URL that OCR reports right next to where real text fo
     let found = (PdfQrLinker.scan withOcr input).Links
 
     Assert.Equal(1, found.Length)
+}
 
-[<Fact>]
-let ``prefers real text over an OCR misread at the same spot`` () =
+let ``prefers real text over an OCR misread at the same spot`` () = test {
+    let! Assert = assertion
     // Regression test for a real-world false link: a flyer's printed URL
     // ("www.wlf.la.gov/page/cwd") got real-text-extracted correctly, but
     // OCR - run unconditionally over the same page, see findOnPage's own
@@ -698,9 +750,10 @@ let ``prefers real text over an OCR misread at the same spot`` () =
 
     Assert.Equal(1, found.Length)
     Assert.Equal("https://example.com/wlf", found.Head.Uri)
+}
 
-[<Fact>]
-let ``does not add a duplicate annotation when OCR's near-miss escapes the overlap check that catches real text`` () =
+let ``does not add a duplicate annotation when OCR's near-miss escapes the overlap check that catches real text`` () = test {
+    let! Assert = assertion
     // Regression test for a real-world duplicate: a URL already linked, with
     // real text extraction correctly recognizing the overlap (existing rect
     // vs its own precise rect clears the >50% threshold) while OCR's
@@ -745,9 +798,10 @@ let ``does not add a duplicate annotation when OCR's near-miss escapes the overl
 
     Assert.Empty(linked.Links)
     Assert.Equal(1, (annotations (output.ToArray())).Length)
+}
 
-[<Fact>]
-let ``escalates to tiled OCR when a whole-page pass finds nothing linkable`` () =
+let ``escalates to tiled OCR when a whole-page pass finds nothing linkable`` () = test {
+    let! Assert = assertion
     // Regression test for a real flyer: Tesseract's own layout analysis
     // can silently skip a text region entirely on a busy graphic page,
     // even though the exact same pixels read fine once isolated to a
@@ -780,3 +834,4 @@ let ``escalates to tiled OCR when a whole-page pass finds nothing linkable`` () 
 
     Assert.Equal(1, found.Length)
     Assert.Equal("https://example.com/tiled-fallback", found.Head.Uri)
+}
