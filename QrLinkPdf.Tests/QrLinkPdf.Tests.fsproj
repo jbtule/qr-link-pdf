@@ -3,6 +3,22 @@
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
     <IsPackable>false</IsPackable>
+    <!-- Runnable directly - Program.fs hand-writes the same one-line
+         AddAnyUnitTestFramework() setup AnyUnit.TestingPlatform's own
+         EnableAnyUnitRunner property would otherwise codegen as a C#
+         file (which an .fsproj can't compile) - see Program.fs's own
+         comment. No separate satellite/.Mtp project needed.
+
+         For `dotnet test` itself to actually invoke this MTP app (rather
+         than silently no-op'ing through the classic VSTest path, which
+         has nothing to discover here) needs the repo-root global.json's
+         own `"test": {"runner": "Microsoft.Testing.Platform"}` - that's
+         the real switch; confirmed empirically that no combination of
+         MSBuild properties/PackageReferences on this project alone
+         (IsTestingPlatformApplication, a direct Microsoft.Testing.Platform
+         reference, even Microsoft.Testing.Platform.MSBuild) changes
+         `dotnet test`'s own routing decision without it. -->
+    <OutputType>Exe</OutputType>
 
     <!-- OcrTests.fs constructs a real TesseractEngine, which needs
          Tesseract.Native's flat native asset next to the test assembly -
@@ -15,14 +31,22 @@
          implicit RID for a single-match platform) but failed in CI on
          Linux with DllNotFoundException before this was added. -->
     <RuntimeIdentifier>$(NETCoreSdkRuntimeIdentifier)</RuntimeIdentifier>
+
+    <!-- Needed alongside the explicit FSharp.Core PackageReference below -
+         the F# SDK adds its own implicit FSharp.Core reference regardless,
+         which otherwise collides with an explicit one of a different
+         version (NU1504 duplicate-item warning). -->
+    <DisableImplicitFSharpCoreReference>true</DisableImplicitFSharpCoreReference>
   </PropertyGroup>
 
   <ItemGroup>
+    <Compile Include="AssemblyInfo.fs" />
     <Compile Include="TestPdfs.fs" />
     <Compile Include="Tests.fs" />
     <Compile Include="DegradedTests.fs" />
     <Compile Include="OcrTests.fs" />
     <Compile Include="ImageToPdfTests.fs" />
+    <Compile Include="Program.fs" />
   </ItemGroup>
 
   <ItemGroup>
@@ -42,10 +66,31 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="coverlet.collector" Version="6.0.4" />
-    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
-    <PackageReference Include="xunit" Version="2.9.3" />
-    <PackageReference Include="xunit.runner.visualstudio" Version="3.1.4" />
+    <!-- AnyUnit.Style.FSharp 1.0.0 was packed against FSharp.Core
+         10.1.401 (its own nuspec's minimum dependency version) - an SDK
+         older than 10.0.401 implicitly references an older FSharp.Core
+         for this project's own .fsproj, which NuGet then reports as a
+         real (if harmless here) downgrade warning (NU1605). Pinned
+         explicitly so restore is identical regardless of which patch
+         SDK actually built this locally or in CI. -->
+    <PackageReference Include="FSharp.Core" Version="10.1.401" />
+    <!-- AnyUnit 1.0.0, real - published to nuget.org, no local feed
+         needed anymore (see NuGet.Config's own comment; that escape
+         hatch is still there for other, still-unpublished packages, not
+         this one). Every test in this project is now AnyUnit.Style.
+         FSharp's `test { }` - the last [<Theory>]/[<InlineData>]
+         holdouts converted once AnyUnit.Style.FSharp gained
+         IRowInlineParameter-based parametrized-test discovery, so xunit/
+         xunit.runner.visualstudio are gone entirely. AnyUnit.Style.Xunit
+         stays for its Assert.Equal(...)/InlineData IAssert extension
+         vocabulary - AnyUnit.Style.FSharp only provides test structure/
+         discovery, not assertion vocabulary, so any style package's
+         assertions/row attributes can be mixed in. -->
+    <PackageReference Include="AnyUnit" Version="1.0.0" />
+    <PackageReference Include="AnyUnit.Style.FSharp" Version="1.0.0" />
+    <PackageReference Include="AnyUnit.Style.Xunit" Version="1.0.0" />
+    <!-- Program.fs's own MTP entry point (see its comment). -->
+    <PackageReference Include="AnyUnit.TestingPlatform" Version="1.0.0" />
   </ItemGroup>
 
 </Project>

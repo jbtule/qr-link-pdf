@@ -1,0 +1,99 @@
+<Project Sdk="Microsoft.NET.Sdk.BlazorWebAssembly">
+
+  <!--
+    Runs the REAL QrLinkPdf.Tests suite (AnyUnit.Style.FSharp) under
+    WebAssembly - not a smoke test. Exploratory spike, committed because
+    it's genuinely working end to end (see Program.fs/wwwroot/runtests.mjs
+    comments for exactly what's proven and what's still rough): real
+    PDFium/Skia/Tesseract native code, statically linked, running the
+    unmodified test suite via plain `node`/`bun` (no headless browser
+    needed - dotnet.js detects a non-browser JS host and boots without
+    one). QrLinkPdf.Wasm.SmokeTest is untouched for now - this hasn't
+    replaced it yet, just proven the approach.
+
+    Sdk.BlazorWebAssembly (not the plain console Sdk.WebAssembly
+    QrLinkPdf.Wasm.SmokeTest uses) specifically because it's the one
+    that got every native dependency (PDFium, Skia, Tesseract) linked in
+    correctly with zero property-hacking - confirmed empirically this
+    session; the plain Sdk.WebAssembly path needed SkiaSharp.NativeAssets.
+    WebAssembly's own internal UsingMicrosoftNETSdkWebAssembly/
+    UsingMicrosoftNETSdkBlazorWebAssembly gate satisfied some other way.
+    Program.fs never builds a WebAssemblyHostBuilder/Razor component, so
+    none of Blazor's actual browser-hosting machinery is exercised - only
+    its build-time native linking.
+  -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0-browser</TargetFramework>
+    <RuntimeIdentifier>browser-wasm</RuntimeIdentifier>
+    <RootNamespace>QrLinkPdf.Tests.Wasm</RootNamespace>
+    <IsPackable>false</IsPackable>
+
+    <!-- Same native linking settings as QrLinkPdf.Wasm/
+         QrLinkPdf.Wasm.SmokeTest - now also exercising Tesseract's native
+         side via OcrTests.fs, not just PDFium/Skia. -->
+    <WasmBuildNative>true</WasmBuildNative>
+    <WasmEnableThreads>false</WasmEnableThreads>
+    <WasmEnableSIMD>true</WasmEnableSIMD>
+    <PDFiumUseSystemLibjpeg>true</PDFiumUseSystemLibjpeg>
+    <InvariantGlobalization>false</InvariantGlobalization>
+
+    <!-- See QrLinkPdf.Tests.fsproj's own comment on the explicit
+         FSharp.Core PackageReference below - same reasoning. -->
+    <DisableImplicitFSharpCoreReference>true</DisableImplicitFSharpCoreReference>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- QrLinkPdf.Tests's own real source, compiled directly - not a
+         ProjectReference: that project targets desktop net10.0, and a
+         WasmBuildNative-sensitive project's native linking has to happen
+         in this project's own build, not one crossed via a library
+         reference (same reasoning QrLinkPdf.Wasm.SmokeTest.fsproj's own
+         comment gives for its identical TestPdfs.fs include). -->
+    <Compile Include="../QrLinkPdf.Tests/TestPdfs.fs" Link="Tests/TestPdfs.fs" />
+    <Compile Include="../QrLinkPdf.Tests/Tests.fs" Link="Tests/Tests.fs" />
+    <Compile Include="../QrLinkPdf.Tests/DegradedTests.fs" Link="Tests/DegradedTests.fs" />
+    <Compile Include="../QrLinkPdf.Tests/OcrTests.fs" Link="Tests/OcrTests.fs" />
+    <Compile Include="../QrLinkPdf.Tests/ImageToPdfTests.fs" Link="Tests/ImageToPdfTests.fs" />
+    <Compile Include="AssemblyInfo.fs" />
+    <Compile Include="Program.fs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../QrLinkPdf.Core/QrLinkPdf.Core.fsproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Blazor's static-web-assets pipeline (which would normally copy
+         these from this project's own wwwroot/) only runs at `dotnet
+         publish`, not `dotnet build` - confirmed empirically (a plain
+         build produces wwwroot/_framework but nothing else from
+         wwwroot/). Explicit CopyToOutputDirectory items bypass that
+         pipeline entirely with plain MSBuild content-copy semantics,
+         which DOES run at build time - same pattern
+         QrLinkPdf.Wasm.SmokeTest.fsproj's own wwwroot items use. -->
+    <None Include="wwwroot/index.html" CopyToOutputDirectory="PreserveNewest" Link="wwwroot/index.html" />
+    <None Include="wwwroot/runtests.mjs" CopyToOutputDirectory="PreserveNewest" Link="wwwroot/runtests.mjs" />
+    <None Include="wwwroot/package.json" CopyToOutputDirectory="PreserveNewest" Link="wwwroot/package.json" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Blazor SDK needs this even though Program.fs never builds a
+         WebAssemblyHostBuilder - it's what makes UsingMicrosoftNETSdkBlazorWebAssembly
+         get set, which is the actual gate PDFium/Skia/Tesseract's own
+         native-asset targets check (see this file's own top comment). -->
+    <PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly" Version="10.0.11" />
+    <!-- Keep in step with QrLinkPdf.Core's own pin (see its own comment) -
+         mismatched versions produce noisy NU1605/MSB3277 warnings. -->
+    <PackageReference Include="SkiaSharp" Version="4.152.0" />
+    <PackageReference Include="SkiaSharp.NativeAssets.WebAssembly" Version="4.152.0" />
+    <PackageReference Include="FSharp.Core" Version="10.1.401" />
+    <!-- AnyUnit 1.0.0, real - published to nuget.org, no local feed
+         needed. Same packages/versions QrLinkPdf.Tests.fsproj itself
+         uses. -->
+    <PackageReference Include="AnyUnit" Version="1.0.0" />
+    <PackageReference Include="AnyUnit.Style.FSharp" Version="1.0.0" />
+    <PackageReference Include="AnyUnit.Style.Xunit" Version="1.0.0" />
+  </ItemGroup>
+
+</Project>

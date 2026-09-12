@@ -11,14 +11,15 @@ open System
 open System.IO
 open SkiaSharp
 open Tesseract
-open Xunit
+open AnyUnit.Style.FSharp.Test
+open AnyUnit.Style.Xunit
 open QrLinkPdf
 open QrLinkPdf.Tests.TestPdfs
 
 let private tessdataPath = Path.Combine(AppContext.BaseDirectory, "tessdata")
 
-[<Fact>]
-let ``a photographed-looking image finds both its QR code and its printed text URL`` () =
+let ``a photographed-looking image finds both its QR code and its printed text URL`` () = test {
+    let! Assert = assertion
     if not (File.Exists(Path.Combine(tessdataPath, "eng.traineddata"))) then
         failwith $"Missing {tessdataPath}/eng.traineddata - see README's OCR setup."
 
@@ -54,3 +55,4 @@ let ``a photographed-looking image finds both its QR code and its printed text U
     let found = (PdfQrLinker.scan options input).Links |> List.map (fun l -> l.Uri) |> List.sort
 
     Assert.Equal<string list>([ "https://example.com/photo-qr"; "https://example.com/photo-upload" ], found)
+}

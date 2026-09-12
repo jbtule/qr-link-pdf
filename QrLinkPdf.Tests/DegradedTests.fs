@@ -8,7 +8,8 @@
 module QrLinkPdf.Tests.DegradedTests
 
 open System.IO
-open Xunit
+open AnyUnit.Style.FSharp.Test
+open AnyUnit.Style.Xunit
 open QrLinkPdf
 open QrLinkPdf.Tests.TestPdfs
 
@@ -25,31 +26,34 @@ let private pyramid = atDpi ScanOptions.Default.Scales
 let private fixture degradation =
     build [ placement "https://example.com/degraded" |> degraded degradation ]
 
-[<Theory>]
 [<InlineData(5.0)>]
 [<InlineData(12.0)>]
 [<InlineData(30.0)>]
-let ``finds a code sitting askew on the page`` (degrees: float) =
+let ``finds a code sitting askew on the page`` (degrees: float) = test {
+    let! Assert = assertion
     let found = pyramid (fixture (Rotated(float32 degrees)))
     Assert.Equal(1, found.Length)
     Assert.Equal("https://example.com/degraded", found.Head.Uri)
+}
 
-[<Theory>]
 [<InlineData(0.3)>]
 [<InlineData(0.2)>]
 [<InlineData(0.12)>]
-let ``finds a code that has been downsampled and stretched back`` (factor: float) =
+let ``finds a code that has been downsampled and stretched back`` (factor: float) = test {
+    let! Assert = assertion
     Assert.Equal(1, (pyramid (fixture (Resampled(float32 factor)))).Length)
+}
 
-[<Theory>]
 [<InlineData(40)>]
 [<InlineData(15)>]
 [<InlineData(5)>]
-let ``finds a code through JPEG artifacts`` (quality: int) =
+let ``finds a code through JPEG artifacts`` (quality: int) = test {
+    let! Assert = assertion
     Assert.Equal(1, (pyramid (fixture (JpegArtifacts quality))).Length)
+}
 
-[<Fact>]
-let ``finds a washed-out code only with the full pyramid`` () =
+let ``finds a washed-out code only with the full pyramid`` () = test {
+    let! Assert = assertion
     // The point of the whole exercise: this code is invisible to a single
     // full-resolution pass and readable once shrunk. Delete the extra scan
     // levels from ScanOptions.Default and this test goes red.
@@ -57,21 +61,23 @@ let ``finds a washed-out code only with the full pyramid`` () =
 
     Assert.Empty(singleScale pdf)
     Assert.Equal(1, (pyramid pdf).Length)
+}
 
-[<Fact>]
-let ``gives up on a code with almost no contrast left`` () =
+let ``gives up on a code with almost no contrast left`` () = test {
+    let! Assert = assertion
     // Documents where the scanner's tolerance actually ends, so a future
     // change that quietly narrows it is visible.
     Assert.Empty(pyramid (fixture (Faded 0.85f)))
+}
 
-[<Theory>]
 [<InlineData(200.0)>]
 [<InlineData(120.0)>]
 [<InlineData(70.0)>]
 [<InlineData(60.0)>]
 [<InlineData(45.0)>]
 [<InlineData(30.0)>]
-let ``reports one link per code, at any size`` (size: float) =
+let ``reports one link per code, at any size`` (size: float) = test {
+    let! Assert = assertion
     // Regression test. Codes around 60pt used to come back twice: they decoded
     // only on ZXing's auto-rotated pass at the smallest pyramid level, and its
     // corner points are in the rotated image's coordinates, so the second
@@ -82,9 +88,10 @@ let ``reports one link per code, at any size`` (size: float) =
     Assert.Equal(1, found.Length)
     Assert.InRange(found.Head.Left, 40.0, 120.0)
     Assert.InRange(found.Head.Bottom, 140.0, 220.0)
+}
 
-[<Fact>]
-let ``keeps degraded finds inside the page`` () =
+let ``keeps degraded finds inside the page`` () = test {
+    let! Assert = assertion
     let pdf =
         build
             [ placement "https://example.com/a" |> sized 60f
@@ -101,9 +108,10 @@ let ``keeps degraded finds inside the page`` () =
         Assert.InRange(link.Right, 0.0, float (size.GetWidth()))
         Assert.InRange(link.Bottom, 0.0, float (size.GetHeight()))
         Assert.InRange(link.Top, 0.0, float (size.GetHeight()))
+}
 
-[<Fact>]
-let ``the interactive scan finds everything the default scan does`` () =
+let ``the interactive scan finds everything the default scan does`` () = test {
+    let! Assert = assertion
     // ScanOptions.Interactive is what the browser uses. It is allowed to be
     // faster than Default; it is not allowed to be blinder. An earlier version
     // used Scales = [1.0; 0.5] and silently stopped finding the faded code.
@@ -123,3 +131,4 @@ let ``the interactive scan finds everything the default scan does`` () =
         let actual = (PdfQrLinker.scan ScanOptions.Interactive input).Links.Length
 
         Assert.True(actual >= expected, sprintf "%s: Default found %d, Interactive found %d" name expected actual)
+}
