@@ -37,6 +37,10 @@
     <WasmEnableSIMD>true</WasmEnableSIMD>
     <PDFiumUseSystemLibjpeg>true</PDFiumUseSystemLibjpeg>
     <InvariantGlobalization>false</InvariantGlobalization>
+
+    <!-- See QrLinkPdf.Tests.fsproj's own comment on the explicit
+         FSharp.Core PackageReference below - same reasoning. -->
+    <DisableImplicitFSharpCoreReference>true</DisableImplicitFSharpCoreReference>
   </PropertyGroup>
 
   <ItemGroup>
@@ -83,12 +87,13 @@
          mismatched versions produce noisy NU1605/MSB3277 warnings. -->
     <PackageReference Include="SkiaSharp" Version="4.152.0" />
     <PackageReference Include="SkiaSharp.NativeAssets.WebAssembly" Version="4.152.0" />
-    <!-- AnyUnit (prerelease, via .local-nuget-feed - see repo-root
-         NuGet.Config's own comment for the pattern this reuses). Same
-         packages/versions QrLinkPdf.Tests.fsproj itself uses. -->
-    <PackageReference Include="AnyUnit" Version="1.0.0-alpha.0.103" />
-    <PackageReference Include="AnyUnit.Style.FSharp" Version="1.0.0-alpha.0.103" />
-    <PackageReference Include="AnyUnit.Style.Xunit" Version="1.0.0-alpha.0.103" />
+    <PackageReference Include="FSharp.Core" Version="10.1.401" />
+    <!-- AnyUnit 1.0.0, real - published to nuget.org, no local feed
+         needed. Same packages/versions QrLinkPdf.Tests.fsproj itself
+         uses. -->
+    <PackageReference Include="AnyUnit" Version="1.0.0" />
+    <PackageReference Include="AnyUnit.Style.FSharp" Version="1.0.0" />
+    <PackageReference Include="AnyUnit.Style.Xunit" Version="1.0.0" />
   </ItemGroup>
 
 </Project>
