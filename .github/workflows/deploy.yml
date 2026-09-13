@@ -100,10 +100,6 @@ jobs:
       # proves and how). Supersedes the old QrLinkPdf.Wasm.SmokeTest/
       # smoke-wasm.sh (a handful of hand-rolled checks) with the same 79
       # tests QrLinkPdf.Tests itself runs on desktop - a strict superset.
-      # Deliberately no continue-on-error/tolerance for a known failure:
-      # a real wasm-vs-desktop OCR fidelity difference exists today (see
-      # QrLinkPdf.Tests.Wasm's own commit) and should keep blocking the
-      # deploy until it's actually fixed, not silently pass around it.
       - name: Test WebAssembly (real suite, under node)
         run: |
           set -euo pipefail
