@@ -84,10 +84,21 @@ jobs:
       # crashes the whole run - with every test already passed - instead of
       # producing one), which is why this parses plain console output
       # rather than feeding a trx into a real test-reporter action.
+      #
+      # The sed strips ANSI colour codes before they hit the log - MTP
+      # colours "Test run summary:" (green/red) when it decides the run is
+      # CI (confirmed the hard way: reproduces on the real Linux runner,
+      # not locally on macOS even with GITHUB_ACTIONS=true set, so it's
+      # something about that environment specifically, not just an env
+      # var), which otherwise defeats the summary step's own `^Test run
+      # summary:` anchor - it doesn't match a line that actually starts
+      # with an escape sequence, so a run that passed cleanly reported
+      # "crashed before printing a summary" instead.
       - name: Test
         run: |
           set -euo pipefail
-          dotnet test QrLinkPdf.Tests/QrLinkPdf.Tests.fsproj --configuration Release --no-build 2>&1 | tee test-desktop.log
+          dotnet test QrLinkPdf.Tests/QrLinkPdf.Tests.fsproj --configuration Release --no-build 2>&1 \
+            | sed -E $'s/\x1b\\[[0-9;]*[a-zA-Z]//g' | tee test-desktop.log
         env:
           LD_LIBRARY_PATH: ${{ github.workspace }}/QrLinkPdf.Tests/bin/Release/net10.0/linux-x64
 
@@ -101,12 +112,16 @@ jobs:
       #
       # The `(cd ... && node ...)` subshell keeps the log written at the
       # repo root alongside test-desktop.log, rather than five directories
-      # deep in the wwwroot output dir.
+      # deep in the wwwroot output dir. The same ANSI-stripping sed as the
+      # Test step above - AnyUnit.Run.Runner's own "ok"/"FAIL" printer
+      # hasn't been seen to colour its output, but it costs nothing to
+      # guard against the same class of surprise here too.
       - name: Test WebAssembly (real suite, under node)
         run: |
           set -euo pipefail
           dotnet build QrLinkPdf.Tests.Wasm/QrLinkPdf.Tests.Wasm.fsproj --configuration Release
-          (cd QrLinkPdf.Tests.Wasm/bin/Release/net10.0-browser/wwwroot && node runtests.mjs) 2>&1 | tee test-wasm.log
+          (cd QrLinkPdf.Tests.Wasm/bin/Release/net10.0-browser/wwwroot && node runtests.mjs) 2>&1 \
+            | sed -E $'s/\x1b\\[[0-9;]*[a-zA-Z]//g' | tee test-wasm.log
 
       # A GitHub Check with real per-test annotations needs a structured
       # report (trx/JUnit) for a reporter action to read - not available
