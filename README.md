@@ -1,5 +1,6 @@
 # qr-link-pdf
 
+[![Test](https://github.com/jbtule/qr-link-pdf/actions/workflows/test.yml/badge.svg)](https://github.com/jbtule/qr-link-pdf/actions/workflows/test.yml)
 [![Deploy](https://github.com/jbtule/qr-link-pdf/actions/workflows/deploy.yml/badge.svg)](https://github.com/jbtule/qr-link-pdf/actions/workflows/deploy.yml)
 [![License: AGPL-3.0](https://img.shields.io/badge/license-AGPL--3.0-2f5d3f)](LICENSE)
 
@@ -272,10 +273,19 @@ builds a `WebAssemblyHostBuilder`) nor `QrLinkPdf.Tests/OcrTests.fs`
 (desktop native libraries, not the wasm build) can catch. Needs
 `tessdata/eng.traineddata` (same OCR setup as above) and Node.
 
+## CI
+
+[`.github/workflows/test.yml`](.github/workflows/test.yml) builds the test
+suite (desktop and the real wasm suite under Node, per above) on every pull
+request and is the only check a PR sees - nothing there touches deployment,
+so there's nothing deploy-shaped to approve.
+[`.github/workflows/deploy.yml`](.github/workflows/deploy.yml) pulls that
+same job in via `uses:` before publishing on every push to `main`, so a push
+gets the identical gate a PR did, plus the actual deploy below.
+
 ## Deploying
 
-The browser app is published by [`.github/workflows/deploy.yml`](.github/workflows/deploy.yml)
-on every push to `main`, split across two hosts:
+The browser app is published on every push to `main`, split across two hosts:
 
 | | Serves | Size |
 | --- | --- | --- |
@@ -310,10 +320,10 @@ references fingerprinted filenames that must already exist.
 ./ci-local.sh
 ```
 
-Replays the workflow's build job on Linux in a container, against your working
-tree rather than `HEAD`, so you can answer "would CI pass?" before pushing. It
-extracts the job's own `run:` steps out of the workflow instead of
-reimplementing them, so the two can't drift.
+Replays test.yml's and deploy.yml's build jobs on Linux in a container,
+against your working tree rather than `HEAD`, so you can answer "would CI
+pass?" before pushing. It extracts each job's own `run:` steps out of the
+workflow files instead of reimplementing them, so the two can't drift.
 
 Needs [Apple's `container`](https://github.com/apple/container) (macOS 26+) or
 Docker. The first run builds an image with the `wasm-tools` workload baked in

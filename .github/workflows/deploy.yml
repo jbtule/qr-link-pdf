@@ -11,20 +11,17 @@
 # cap. index.html redirects the heavy boot resources with Blazor's
 # loadBootResource hook, so the page keeps its tools.tuley.name/qr-link-pdf URL.
 #
-# Also runs on pull_request, so the same build/test steps gate a PR before
-# merge - but only up through "Test WebAssembly (real suite, under node)"
-# below; everything after that (publishing, the OCR browser smoke test,
-# splitting/uploading the deploy output, and the assets/pages jobs) is
-# gated with `if: github.event_name != 'pull_request'`, since a PR has
-# nothing to deploy. ci-local.sh replays every `run:` step in the build job
-# regardless (it doesn't evaluate `if:`), which matches what an actual push
-# to main runs.
+# Only runs on push to main (plus workflow_dispatch) - never on a PR. A PR's
+# own checks come from test.yml directly, so nothing here (Cloudflare
+# tokens, GitHub Pages deploys) ever shows up as a check to approve on a
+# PR. The "test" job below pulls test.yml in via `uses:` so the same
+# build/test steps still gate a push to main before it ships - see that
+# file's own comment.
 name: Deploy
 
 on:
   push:
     branches: [main]
-  pull_request:
   workflow_dispatch:
 
 permissions:
@@ -33,14 +30,10 @@ permissions:
   id-token: write
 
 # Never let two deploys interleave: the shell references fingerprinted asset
-# names, so it must not go live before its matching assets. PRs don't deploy
-# (see the build job's own steps and the assets/pages jobs below, all gated
-# on not being a pull_request), so they get their own per-PR group instead -
-# no reason to serialize test runs across unrelated PRs, and a superseding
-# push should cancel the old one rather than queue behind it.
+# names, so it must not go live before its matching assets.
 concurrency:
-  group: ${{ github.event_name == 'pull_request' && format('test-pr-{0}', github.event.pull_request.number) || 'deploy' }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  group: deploy
+  cancel-in-progress: false
 
 env:
   # Where the runtime is served from. Must end in a slash. Change this if the
@@ -50,7 +43,11 @@ env:
   BASE_HREF: /qr-link-pdf/
 
 jobs:
+  test:
+    uses: ./.github/workflows/test.yml
+
   build:
+    needs: test
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -62,15 +59,13 @@ jobs:
           cache-dependency-path: '**/*.fsproj'
 
       # PDFium and Skia are Emscripten static archives that get linked into
-      # dotnet.wasm, so the native toolchain is required.
+      # dotnet.wasm, so the native toolchain is required for Publish below.
       - name: Install wasm-tools
         run: dotnet workload install wasm-tools
 
-      # English trained data for OCR - fetched once here, ahead of Test:
-      # QrLinkPdf.Tests/OcrTests.fs runs real TesseractEngine OCR (not the
-      # fake-engine tests elsewhere in the suite) and fails loudly, not
-      # skips, if this is missing - see its own comment for why. Same file
-      # the CLI's own --ocr yes needs locally (README), not checked in.
+      # Same trained data test.yml's own OcrTests.fs needs, fetched again
+      # here (separate job, separate runner) - this run copies it into the
+      # published app itself, not just the test assembly's output dir.
       - name: Fetch OCR trained data
         run: |
           set -euo pipefail
@@ -78,53 +73,6 @@ jobs:
           curl -sL -o tessdata/eng.traineddata \
             https://github.com/tesseract-ocr/tessdata_fast/raw/main/eng.traineddata
 
-      # Split from Test below so LD_LIBRARY_PATH can point at the real
-      # output directory - see that step's own comment for why.
-      - name: Build tests
-        run: dotnet build QrLinkPdf.Tests/QrLinkPdf.Tests.fsproj --configuration Release
-
-      # A real, verified-upstream bug (reported), not local misconfiguration:
-      # Tesseract.Native.runtime.linux-x64 bundles its own libssl.so.3/
-      # libcrypto.so.3/libcurl.so.4 (for tesseract's optional model-download
-      # feature) with RUNPATH=$ORIGIN on libcurl.so.4/libtesseract.so - but
-      # that doesn't help here, confirmed the hard way with a minimal
-      # NativeLibrary.Load repro carrying zero xunit/VSTest at all: .NET's
-      # own runtime already has the *system* libssl.so.3/libcrypto.so.3
-      # resident by the time anything tries to load Tesseract's, and once a
-      # shared object satisfying a given SONAME is mapped into the process,
-      # the dynamic linker reuses that mapping for every later NEEDED
-      # reference to the same SONAME regardless of search path - so no
-      # amount of RUNPATH, LD_LIBRARY_PATH set from *inside* the running
-      # process, or explicitly pre-loading the bundled copies by absolute
-      # path can shift it once that's happened. It has to be set before the
-      # dotnet host process starts at all, so its own OpenSSL loading (if
-      # any) picks the bundled version first. Ubuntu 22.04/24.04's system
-      # OpenSSL is 3.0.x; the bundled one needs OPENSSL_3.2/3.3 symbols.
-      # This isn't CI-specific either - a real `dotnet run --ocr yes` on a
-      # stock Linux box hits the exact same thing.
-      - name: Test
-        run: dotnet test QrLinkPdf.Tests/QrLinkPdf.Tests.fsproj --configuration Release --no-build
-        env:
-          LD_LIBRARY_PATH: ${{ github.workspace }}/QrLinkPdf.Tests/bin/Release/net10.0/linux-x64
-
-      # Gate the deploy on the REAL test suite actually passing under
-      # WebAssembly, not just linking - a normal Test step above uses the
-      # desktop native libraries and would not catch a wasm-specific
-      # difference (see QrLinkPdf.Tests.Wasm's own comment for what this
-      # proves and how). Supersedes the old QrLinkPdf.Wasm.SmokeTest/
-      # smoke-wasm.sh (a handful of hand-rolled checks) with the same 79
-      # tests QrLinkPdf.Tests itself runs on desktop - a strict superset.
-      - name: Test WebAssembly (real suite, under node)
-        run: |
-          set -euo pipefail
-          dotnet build QrLinkPdf.Tests.Wasm/QrLinkPdf.Tests.Wasm.fsproj --configuration Release
-          cd QrLinkPdf.Tests.Wasm/bin/Release/net10.0-browser/wwwroot
-          node runtests.mjs
-
-      # Everything below this point only serves the actual deploy (Cloudflare/
-      # GitHub Pages) - a PR has nothing to deploy, just tests to pass, so it
-      # stops here. See the assets/pages jobs' own `if:` for the same gate.
-      #
       # Tesseract itself is statically linked into dotnet.wasm at publish
       # time (see QrLinkPdf.Wasm.fsproj's Tesseract.Native.browser-wasm
       # reference via Core) - the trained data fetched above is the only OCR
@@ -132,7 +80,6 @@ jobs:
       # Publish so it's picked up as a static web asset the same way
       # app.css/download.js already are.
       - name: Copy OCR trained data into the browser app
-        if: github.event_name != 'pull_request'
         run: |
           set -euo pipefail
           mkdir -p QrLinkPdf.Wasm/wwwroot/tessdata
@@ -141,30 +88,26 @@ jobs:
       # No .br/.gz: Cloudflare compresses on the fly and GitHub Pages can't
       # serve precompressed files anyway. Saves ~20 MB per deploy.
       - name: Publish
-        if: github.event_name != 'pull_request'
         run: >
           dotnet publish QrLinkPdf.Wasm/QrLinkPdf.Wasm.fsproj
           --configuration Release
           -p:CompressionEnabled=false
 
       - uses: actions/setup-node@v5
-        if: github.event_name != 'pull_request'
         with:
           node-version: '22'
 
       # Gate the deploy on OCR actually working end to end in a real
       # browser - uploads smoke-wasm-ocr/fixture.pdf, enables the checkbox,
       # and checks both that OCR found the real URL and that Blazor's
-      # global error banner never showed up. Neither Smoke test WebAssembly
-      # above (no OCR at all) nor a plain dotnet test (desktop native
+      # global error banner never showed up. Neither test.yml's wasm test
+      # suite (no OCR at all) nor a plain dotnet test (desktop native
       # libraries, not the wasm build) would catch the class of bug this
       # exists for - see smoke-wasm-ocr.sh's own comment.
       - name: Smoke test WebAssembly OCR
-        if: github.event_name != 'pull_request'
         run: ./smoke-wasm-ocr.sh
 
       - name: Split the output across the two hosts
-        if: github.event_name != 'pull_request'
         run: |
           set -euo pipefail
           pub=QrLinkPdf.Wasm/bin/Release/net10.0-browser/publish/wwwroot
@@ -238,22 +181,18 @@ jobs:
           echo "assets: $(du -sh assets | cut -f1)"
 
       - uses: actions/upload-artifact@v7
-        if: github.event_name != 'pull_request'
         with:
           name: assets
           path: assets
           retention-days: 1
 
       - uses: actions/upload-pages-artifact@v5
-        if: github.event_name != 'pull_request'
         with:
           path: shell
 
   # Assets go first: the shell is useless until the runtime it points at exists.
-  # Skipped on a PR - nothing above produced an artifact to deploy.
   assets:
     needs: build
-    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v8
@@ -269,7 +208,6 @@ jobs:
 
   pages:
     needs: assets
-    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     environment:
       name: github-pages
