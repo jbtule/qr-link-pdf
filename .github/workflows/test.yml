@@ -74,8 +74,20 @@ jobs:
       # OpenSSL is 3.0.x; the bundled one needs OPENSSL_3.2/3.3 symbols.
       # This isn't CI-specific either - a real `dotnet run --ocr yes` on a
       # stock Linux box hits the exact same thing.
+      # Output is tee'd to a log (not just relied on in the Actions UI) so
+      # the summary step below can pull a result table onto the run's
+      # summary page - see that step's own comment for why. `dotnet test`
+      # doesn't support VSTest's `--logger trx` here at all (this project
+      # runs on Microsoft.Testing.Platform via AnyUnit.TestingPlatform,
+      # confirmed the hard way: AnyUnit.TestingPlatform doesn't implement
+      # ITrxReportCapability, so asking MTP's own trx provider for a report
+      # crashes the whole run - with every test already passed - instead of
+      # producing one), which is why this parses plain console output
+      # rather than feeding a trx into a real test-reporter action.
       - name: Test
-        run: dotnet test QrLinkPdf.Tests/QrLinkPdf.Tests.fsproj --configuration Release --no-build
+        run: |
+          set -euo pipefail
+          dotnet test QrLinkPdf.Tests/QrLinkPdf.Tests.fsproj --configuration Release --no-build 2>&1 | tee test-desktop.log
         env:
           LD_LIBRARY_PATH: ${{ github.workspace }}/QrLinkPdf.Tests/bin/Release/net10.0/linux-x64
 
@@ -86,9 +98,45 @@ jobs:
       # Supersedes the old QrLinkPdf.Wasm.SmokeTest/smoke-wasm.sh (a
       # handful of hand-rolled checks) with the same 79 tests
       # QrLinkPdf.Tests itself runs on desktop - a strict superset.
+      #
+      # The `(cd ... && node ...)` subshell keeps the log written at the
+      # repo root alongside test-desktop.log, rather than five directories
+      # deep in the wwwroot output dir.
       - name: Test WebAssembly (real suite, under node)
         run: |
           set -euo pipefail
           dotnet build QrLinkPdf.Tests.Wasm/QrLinkPdf.Tests.Wasm.fsproj --configuration Release
-          cd QrLinkPdf.Tests.Wasm/bin/Release/net10.0-browser/wwwroot
-          node runtests.mjs
+          (cd QrLinkPdf.Tests.Wasm/bin/Release/net10.0-browser/wwwroot && node runtests.mjs) 2>&1 | tee test-wasm.log
+
+      # A GitHub Check with real per-test annotations needs a structured
+      # report (trx/JUnit) for a reporter action to read - not available
+      # here (see the Test step's own comment) - so this is the next best
+      # thing: a short table on the run's own summary page, so a failure
+      # is visible without opening either step's full log. `>>
+      # ${GITHUB_STEP_SUMMARY:-/dev/null}` rather than the bare env var so
+      # ci-local.sh (which doesn't set it) discards this harmlessly instead
+      # of failing on an unbound variable.
+      - name: Publish test results to the job summary
+        if: always()
+        run: |
+          {
+            echo "## Desktop tests"
+            if [ -f test-desktop.log ]; then
+              echo '```'
+              grep '^failed ' test-desktop.log || true
+              grep -A5 '^Test run summary:' test-desktop.log || echo "(crashed before printing a summary)"
+              echo '```'
+            else
+              echo '_did not run - an earlier step failed first_'
+            fi
+            echo
+            echo "## WebAssembly tests"
+            if [ -f test-wasm.log ]; then
+              echo '```'
+              grep '^FAIL ' test-wasm.log || true
+              grep '^Total:' test-wasm.log || echo "(crashed before printing a summary)"
+              echo '```'
+            else
+              echo '_did not run - an earlier step failed first_'
+            fi
+          } >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
