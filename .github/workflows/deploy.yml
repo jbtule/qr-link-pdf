@@ -93,11 +93,23 @@ jobs:
         env:
           LD_LIBRARY_PATH: ${{ github.workspace }}/QrLinkPdf.Tests/bin/Release/net10.0/linux-x64
 
-      # Gate the deploy on the library actually working under WebAssembly.
-      # A normal test run uses the desktop native libraries and would not
-      # catch a broken Emscripten link.
-      - name: Smoke test WebAssembly
-        run: ./smoke-wasm.sh
+      # Gate the deploy on the REAL test suite actually passing under
+      # WebAssembly, not just linking - a normal Test step above uses the
+      # desktop native libraries and would not catch a wasm-specific
+      # difference (see QrLinkPdf.Tests.Wasm's own comment for what this
+      # proves and how). Supersedes the old QrLinkPdf.Wasm.SmokeTest/
+      # smoke-wasm.sh (a handful of hand-rolled checks) with the same 79
+      # tests QrLinkPdf.Tests itself runs on desktop - a strict superset.
+      # Deliberately no continue-on-error/tolerance for a known failure:
+      # a real wasm-vs-desktop OCR fidelity difference exists today (see
+      # QrLinkPdf.Tests.Wasm's own commit) and should keep blocking the
+      # deploy until it's actually fixed, not silently pass around it.
+      - name: Test WebAssembly (real suite, under node)
+        run: |
+          set -euo pipefail
+          dotnet build QrLinkPdf.Tests.Wasm/QrLinkPdf.Tests.Wasm.fsproj --configuration Release
+          cd QrLinkPdf.Tests.Wasm/bin/Release/net10.0-browser/wwwroot
+          node runtests.mjs
 
       # Tesseract itself is statically linked into dotnet.wasm at publish
       # time (see QrLinkPdf.Wasm.fsproj's Tesseract.Native.browser-wasm
