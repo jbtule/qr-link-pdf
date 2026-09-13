@@ -1,5 +1,6 @@
 # qr-link-pdf
 
+[![Test](https://github.com/jbtule/qr-link-pdf/actions/workflows/test.yml/badge.svg)](https://github.com/jbtule/qr-link-pdf/actions/workflows/test.yml)
 [![Deploy](https://github.com/jbtule/qr-link-pdf/actions/workflows/deploy.yml/badge.svg)](https://github.com/jbtule/qr-link-pdf/actions/workflows/deploy.yml)
 [![License: AGPL-3.0](https://img.shields.io/badge/license-AGPL--3.0-2f5d3f)](LICENSE)
 
@@ -242,15 +243,19 @@ fails loudly, rather than skipping, if it's missing.
 ### Proving the browser build
 
 ```sh
-./smoke-wasm.sh
+dotnet build QrLinkPdf.Tests.Wasm/QrLinkPdf.Tests.Wasm.fsproj --configuration Release
+cd QrLinkPdf.Tests.Wasm/bin/Release/net10.0-browser/wwwroot
+node runtests.mjs
 ```
 
-Compiles the library to WebAssembly and runs it under `node` — no browser, no
-web server, no test framework — checking that a code is found, decoded,
-located and annotated. It exits non-zero if anything is wrong, so it works as
-a CI gate. This is the only automated check that covers the Emscripten
-static-archive linking of PDFium and Skia; a normal test run cannot, because
-it uses the desktop native libraries instead. Needs the `wasm-tools` workload.
+Compiles the real `QrLinkPdf.Tests` suite to WebAssembly and runs it under
+`node` — no browser, no web server — the same 79 tests the desktop `dotnet
+test` run above uses, not just a handful of hand-rolled checks. It exits
+non-zero if anything is wrong, so it works as a CI gate. This is what
+actually covers the Emscripten static-archive linking of PDFium, Skia and
+Tesseract; a normal test run cannot, because it uses the desktop native
+libraries instead. Needs the `wasm-tools` workload and
+`tessdata/eng.traineddata` next to the repo root (same OCR setup as above).
 
 ```sh
 ./smoke-wasm-ocr.sh
@@ -263,14 +268,24 @@ enables the OCR checkbox, and checks both that OCR found the real URL *and*
 that Blazor's global `#blazor-error-ui` banner never appeared — this app has
 shipped a real regression where a successful OCR scan still triggered that
 banner (any native stderr write shows it, unconditionally), which neither
-`smoke-wasm.sh` (no OCR) nor `QrLinkPdf.Tests/OcrTests.fs` (desktop native
-libraries, not the wasm build) can catch. Needs `tessdata/eng.traineddata`
-(same OCR setup as above) and Node.
+the wasm test suite above (no Blazor UI/error-banner at all - it never
+builds a `WebAssemblyHostBuilder`) nor `QrLinkPdf.Tests/OcrTests.fs`
+(desktop native libraries, not the wasm build) can catch. Needs
+`tessdata/eng.traineddata` (same OCR setup as above) and Node.
+
+## CI
+
+[`.github/workflows/test.yml`](.github/workflows/test.yml) builds the test
+suite (desktop and the real wasm suite under Node, per above) on every pull
+request and is the only check a PR sees - nothing there touches deployment,
+so there's nothing deploy-shaped to approve.
+[`.github/workflows/deploy.yml`](.github/workflows/deploy.yml) pulls that
+same job in via `uses:` before publishing on every push to `main`, so a push
+gets the identical gate a PR did, plus the actual deploy below.
 
 ## Deploying
 
-The browser app is published by [`.github/workflows/deploy.yml`](.github/workflows/deploy.yml)
-on every push to `main`, split across two hosts:
+The browser app is published on every push to `main`, split across two hosts:
 
 | | Serves | Size |
 | --- | --- | --- |
@@ -305,10 +320,10 @@ references fingerprinted filenames that must already exist.
 ./ci-local.sh
 ```
 
-Replays the workflow's build job on Linux in a container, against your working
-tree rather than `HEAD`, so you can answer "would CI pass?" before pushing. It
-extracts the job's own `run:` steps out of the workflow instead of
-reimplementing them, so the two can't drift.
+Replays test.yml's and deploy.yml's build jobs on Linux in a container,
+against your working tree rather than `HEAD`, so you can answer "would CI
+pass?" before pushing. It extracts each job's own `run:` steps out of the
+workflow files instead of reimplementing them, so the two can't drift.
 
 Needs [Apple's `container`](https://github.com/apple/container) (macOS 26+) or
 Docker. The first run builds an image with the `wasm-tools` workload baked in

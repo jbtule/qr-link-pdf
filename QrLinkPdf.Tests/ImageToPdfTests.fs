@@ -26,14 +26,26 @@ let ``a photographed-looking image finds both its QR code and its printed text U
     // A plain image, built the way a phone photo of a flyer would look:
     // some printed text up top, a QR code lower down - nothing about this
     // ever touches a PdfDocument until ImageToPdf.convert does.
-    let width, height = 800, 1000
+    let text = "Visit https://example.com/photo-upload today"
+    use font = new SKFont(SKTypeface.Default, 36f)
+
+    // SKTypeface.Default isn't the same font on every platform - desktop
+    // resolves it to a proportional sans (~718px for `text` here), wasm's
+    // browser-wasm build resolves it to Noto Mono instead (~968px, wider
+    // per glyph since it's monospace). A canvas sized for one clips the
+    // other's text at the right edge, and OCR then reads garbage off the
+    // clipped glyph instead of failing loudly - confirmed the hard way:
+    // this used to be a hardcoded 800px width, which silently truncated
+    // "photo-upload" under wasm only. Measuring here keeps the text fully
+    // on-canvas regardless of which font resolves.
+    let width = max 800 (int (ceil (font.MeasureText text)) + 40)
+    let height = 1000
     use bitmap = new SKBitmap(width, height)
     use canvas = new SKCanvas(bitmap)
     canvas.Clear(SKColors.White)
 
     use paint = new SKPaint(Color = SKColors.Black, IsAntialias = true)
-    use font = new SKFont(SKTypeface.Default, 36f)
-    canvas.DrawText("Visit https://example.com/photo-upload today", 20f, 60f, SKTextAlign.Left, font, paint)
+    canvas.DrawText(text, 20f, 60f, SKTextAlign.Left, font, paint)
 
     use qrBitmap = SKBitmap.Decode(qrPng "https://example.com/photo-qr" 400)
     canvas.DrawBitmap(qrBitmap, SKRect(200f, 400f, 600f, 800f), SKSamplingOptions())

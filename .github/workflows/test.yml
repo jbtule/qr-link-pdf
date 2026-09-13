@@ -1,0 +1,94 @@
+# The build/test steps shared by every PR check and by deploy.yml's own
+# gate before it ships anything - kept in exactly one place (this file) so
+# the two can't drift apart. Runs standalone on pull_request (that's the
+# check a PR actually sees: "Test", never anything named or shaped like
+# "Deploy" - nothing here touches Cloudflare or GitHub Pages, so there's
+# nothing to feel nervous about approving); deploy.yml's own "test" job
+# pulls it in via `uses:` before publishing on a push to main.
+name: Test
+
+on:
+  pull_request:
+  workflow_call:
+
+# Cancel a superseded push on the same PR/branch rather than queue behind
+# it - unlike deploy.yml's own concurrency group, there's no ordering
+# constraint here to preserve (nothing here ships anything).
+concurrency:
+  group: test-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: '10.0.x'
+          cache: true
+          cache-dependency-path: '**/*.fsproj'
+
+      # PDFium and Skia are Emscripten static archives that get linked into
+      # dotnet.wasm, so the native toolchain is required.
+      - name: Install wasm-tools
+        run: dotnet workload install wasm-tools
+
+      # English trained data for OCR - fetched once here, ahead of Test:
+      # QrLinkPdf.Tests/OcrTests.fs runs real TesseractEngine OCR (not the
+      # fake-engine tests elsewhere in the suite) and fails loudly, not
+      # skips, if this is missing - see its own comment for why. Same file
+      # the CLI's own --ocr yes needs locally (README), not checked in.
+      - name: Fetch OCR trained data
+        run: |
+          set -euo pipefail
+          mkdir -p tessdata
+          curl -sL -o tessdata/eng.traineddata \
+            https://github.com/tesseract-ocr/tessdata_fast/raw/main/eng.traineddata
+
+      # Split from Test below so LD_LIBRARY_PATH can point at the real
+      # output directory - see that step's own comment for why.
+      - name: Build tests
+        run: dotnet build QrLinkPdf.Tests/QrLinkPdf.Tests.fsproj --configuration Release
+
+      # A real, verified-upstream bug (reported), not local misconfiguration:
+      # Tesseract.Native.runtime.linux-x64 bundles its own libssl.so.3/
+      # libcrypto.so.3/libcurl.so.4 (for tesseract's optional model-download
+      # feature) with RUNPATH=$ORIGIN on libcurl.so.4/libtesseract.so - but
+      # that doesn't help here, confirmed the hard way with a minimal
+      # NativeLibrary.Load repro carrying zero xunit/VSTest at all: .NET's
+      # own runtime already has the *system* libssl.so.3/libcrypto.so.3
+      # resident by the time anything tries to load Tesseract's, and once a
+      # shared object satisfying a given SONAME is mapped into the process,
+      # the dynamic linker reuses that mapping for every later NEEDED
+      # reference to the same SONAME regardless of search path - so no
+      # amount of RUNPATH, LD_LIBRARY_PATH set from *inside* the running
+      # process, or explicitly pre-loading the bundled copies by absolute
+      # path can shift it once that's happened. It has to be set before the
+      # dotnet host process starts at all, so its own OpenSSL loading (if
+      # any) picks the bundled version first. Ubuntu 22.04/24.04's system
+      # OpenSSL is 3.0.x; the bundled one needs OPENSSL_3.2/3.3 symbols.
+      # This isn't CI-specific either - a real `dotnet run --ocr yes` on a
+      # stock Linux box hits the exact same thing.
+      - name: Test
+        run: dotnet test QrLinkPdf.Tests/QrLinkPdf.Tests.fsproj --configuration Release --no-build
+        env:
+          LD_LIBRARY_PATH: ${{ github.workspace }}/QrLinkPdf.Tests/bin/Release/net10.0/linux-x64
+
+      # Gate on the REAL test suite actually passing under WebAssembly, not
+      # just linking - a normal Test step above uses the desktop native
+      # libraries and would not catch a wasm-specific difference (see
+      # QrLinkPdf.Tests.Wasm's own comment for what this proves and how).
+      # Supersedes the old QrLinkPdf.Wasm.SmokeTest/smoke-wasm.sh (a
+      # handful of hand-rolled checks) with the same 79 tests
+      # QrLinkPdf.Tests itself runs on desktop - a strict superset.
+      - name: Test WebAssembly (real suite, under node)
+        run: |
+          set -euo pipefail
+          dotnet build QrLinkPdf.Tests.Wasm/QrLinkPdf.Tests.Wasm.fsproj --configuration Release
+          cd QrLinkPdf.Tests.Wasm/bin/Release/net10.0-browser/wwwroot
+          node runtests.mjs
