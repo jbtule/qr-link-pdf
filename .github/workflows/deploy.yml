@@ -10,11 +10,21 @@
 # bandwidth limit, while Cloudflare serves static assets with brotli/zstd and no
 # cap. index.html redirects the heavy boot resources with Blazor's
 # loadBootResource hook, so the page keeps its tools.tuley.name/qr-link-pdf URL.
+#
+# Also runs on pull_request, so the same build/test steps gate a PR before
+# merge - but only up through "Test WebAssembly (real suite, under node)"
+# below; everything after that (publishing, the OCR browser smoke test,
+# splitting/uploading the deploy output, and the assets/pages jobs) is
+# gated with `if: github.event_name != 'pull_request'`, since a PR has
+# nothing to deploy. ci-local.sh replays every `run:` step in the build job
+# regardless (it doesn't evaluate `if:`), which matches what an actual push
+# to main runs.
 name: Deploy
 
 on:
   push:
     branches: [main]
+  pull_request:
   workflow_dispatch:
 
 permissions:
@@ -23,10 +33,14 @@ permissions:
   id-token: write
 
 # Never let two deploys interleave: the shell references fingerprinted asset
-# names, so it must not go live before its matching assets.
+# names, so it must not go live before its matching assets. PRs don't deploy
+# (see the build job's own steps and the assets/pages jobs below, all gated
+# on not being a pull_request), so they get their own per-PR group instead -
+# no reason to serialize test runs across unrelated PRs, and a superseding
+# push should cancel the old one rather than queue behind it.
 concurrency:
-  group: deploy
-  cancel-in-progress: false
+  group: ${{ github.event_name == 'pull_request' && format('test-pr-{0}', github.event.pull_request.number) || 'deploy' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   # Where the runtime is served from. Must end in a slash. Change this if the
@@ -107,6 +121,10 @@ jobs:
           cd QrLinkPdf.Tests.Wasm/bin/Release/net10.0-browser/wwwroot
           node runtests.mjs
 
+      # Everything below this point only serves the actual deploy (Cloudflare/
+      # GitHub Pages) - a PR has nothing to deploy, just tests to pass, so it
+      # stops here. See the assets/pages jobs' own `if:` for the same gate.
+      #
       # Tesseract itself is statically linked into dotnet.wasm at publish
       # time (see QrLinkPdf.Wasm.fsproj's Tesseract.Native.browser-wasm
       # reference via Core) - the trained data fetched above is the only OCR
@@ -114,6 +132,7 @@ jobs:
       # Publish so it's picked up as a static web asset the same way
       # app.css/download.js already are.
       - name: Copy OCR trained data into the browser app
+        if: github.event_name != 'pull_request'
         run: |
           set -euo pipefail
           mkdir -p QrLinkPdf.Wasm/wwwroot/tessdata
@@ -122,12 +141,14 @@ jobs:
       # No .br/.gz: Cloudflare compresses on the fly and GitHub Pages can't
       # serve precompressed files anyway. Saves ~20 MB per deploy.
       - name: Publish
+        if: github.event_name != 'pull_request'
         run: >
           dotnet publish QrLinkPdf.Wasm/QrLinkPdf.Wasm.fsproj
           --configuration Release
           -p:CompressionEnabled=false
 
       - uses: actions/setup-node@v5
+        if: github.event_name != 'pull_request'
         with:
           node-version: '22'
 
@@ -139,9 +160,11 @@ jobs:
       # libraries, not the wasm build) would catch the class of bug this
       # exists for - see smoke-wasm-ocr.sh's own comment.
       - name: Smoke test WebAssembly OCR
+        if: github.event_name != 'pull_request'
         run: ./smoke-wasm-ocr.sh
 
       - name: Split the output across the two hosts
+        if: github.event_name != 'pull_request'
         run: |
           set -euo pipefail
           pub=QrLinkPdf.Wasm/bin/Release/net10.0-browser/publish/wwwroot
@@ -215,18 +238,22 @@ jobs:
           echo "assets: $(du -sh assets | cut -f1)"
 
       - uses: actions/upload-artifact@v7
+        if: github.event_name != 'pull_request'
         with:
           name: assets
           path: assets
           retention-days: 1
 
       - uses: actions/upload-pages-artifact@v5
+        if: github.event_name != 'pull_request'
         with:
           path: shell
 
   # Assets go first: the shell is useless until the runtime it points at exists.
+  # Skipped on a PR - nothing above produced an artifact to deploy.
   assets:
     needs: build
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v8
@@ -242,6 +269,7 @@ jobs:
 
   pages:
     needs: assets
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     environment:
       name: github-pages
