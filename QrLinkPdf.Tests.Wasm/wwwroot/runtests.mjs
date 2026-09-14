@@ -3,16 +3,20 @@
 // detects a non-browser JS host and loads the runtime itself, no browser
 // or web server needed). Confirmed working identically under both node
 // and bun.
+//
+// Usage: node runtests.mjs [output-json-path]
+// The optional argument is consumed here, not forwarded to dotnet as an
+// application argument (Program.fs takes none) - see the results-export
+// block below for what it's for.
 import { dotnet } from './_framework/dotnet.js';
-import { readFileSync, existsSync } from 'node:fs';
+import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const resultsOutputPath = process.argv[2];
 
-const dotnetInstance = await dotnet
-    .withApplicationArguments(...process.argv.slice(2))
-    .create();
+const dotnetInstance = await dotnet.create();
 
 // OcrTests.fs's real TesseractEngine reads tessdata/eng.traineddata via
 // plain POSIX File.Exists/File.OpenRead calls, which Mono routes to its
@@ -38,3 +42,14 @@ if (existsSync(tessdataPath)) {
 }
 
 process.exitCode = await dotnetInstance.runMain();
+
+// Program.fs writes AnyUnit's own JSON results to a fixed path inside the
+// wasm process's own virtual filesystem (see its own comment on why it
+// can't write to a real host path directly) - bridge it back out now that
+// runMain() has resolved, the same direction tessdata's own bridging
+// above goes, just reversed. Skipped entirely if the caller (test.yml)
+// didn't ask for a results file.
+if (resultsOutputPath) {
+    const json = dotnetInstance.Module.FS.readFile('/anyunit-results.json', { encoding: 'utf8' });
+    writeFileSync(resultsOutputPath, json);
+}

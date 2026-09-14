@@ -283,6 +283,13 @@ so there's nothing deploy-shaped to approve.
 same job in via `uses:` before publishing on every push to `main`, so a push
 gets the identical gate a PR did, plus the actual deploy below.
 
+Both suites run through [AnyUnit.Runner](https://github.com/jbtule/AnyUnit)
+(desktop) and their own results feed
+[`anyunit-report`](https://github.com/jbtule/AnyUnit), which turns them into
+a pass/fail table on the run's own summary page and a downloadable,
+self-contained HTML report (a test × platform matrix across both suites) -
+see test.yml's own comments for the exact commands.
+
 ## Deploying
 
 The browser app is published on every push to `main`, split across two hosts:

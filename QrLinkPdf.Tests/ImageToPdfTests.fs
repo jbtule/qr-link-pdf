@@ -9,6 +9,7 @@ module QrLinkPdf.Tests.ImageToPdfTests
 
 open System
 open System.IO
+open System.Reflection
 open SkiaSharp
 open Tesseract
 open AnyUnit.Style.FSharp.Test
@@ -16,7 +17,12 @@ open AnyUnit.Style.Xunit
 open QrLinkPdf
 open QrLinkPdf.Tests.TestPdfs
 
-let private tessdataPath = Path.Combine(AppContext.BaseDirectory, "tessdata")
+// See OcrTests.fs's own comment on why this prefers the assembly's own
+// directory but falls back to AppContext.BaseDirectory.
+let private tessdataPath =
+    let assemblyDir = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location)
+    let baseDir = if String.IsNullOrEmpty assemblyDir then AppContext.BaseDirectory else assemblyDir
+    Path.Combine(baseDir, "tessdata")
 
 let ``a photographed-looking image finds both its QR code and its printed text URL`` () = test {
     let! Assert = assertion

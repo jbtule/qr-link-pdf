@@ -38,6 +38,22 @@ jobs:
       - name: Install wasm-tools
         run: dotnet workload install wasm-tools
 
+      # Standalone AnyUnit CLI tools (nuget.org), pinned to the same
+      # version as the AnyUnit packages both test projects reference (see
+      # their own .fsproj comments). anyunit-runner replaces `dotnet test`
+      # as the actual desktop gate below - see that step's own comment for
+      # why; anyunit-report turns both suites' JSON results into the job
+      # summary and a downloadable HTML report. Referenced by their full
+      # $HOME/.dotnet/tools path everywhere below, not bare on PATH -
+      # ci-local.sh replays this as a plain non-login `bash script.sh`,
+      # which never sources the profile line a real global .NET tool
+      # install would normally add PATH through.
+      - name: Install AnyUnit CLI tools
+        run: |
+          set -euo pipefail
+          dotnet tool install --global AnyUnit.Runner --version 1.1.0
+          dotnet tool install --global AnyUnit.Report --version 1.1.0
+
       # English trained data for OCR - fetched once here, ahead of Test:
       # QrLinkPdf.Tests/OcrTests.fs runs real TesseractEngine OCR (not the
       # fake-engine tests elsewhere in the suite) and fails loudly, not
@@ -74,31 +90,24 @@ jobs:
       # OpenSSL is 3.0.x; the bundled one needs OPENSSL_3.2/3.3 symbols.
       # This isn't CI-specific either - a real `dotnet run --ocr yes` on a
       # stock Linux box hits the exact same thing.
-      # Output is tee'd to a log (not just relied on in the Actions UI) so
-      # the summary step below can pull a result table onto the run's
-      # summary page - see that step's own comment for why. `dotnet test`
-      # doesn't support VSTest's `--logger trx` here at all (this project
-      # runs on Microsoft.Testing.Platform via AnyUnit.TestingPlatform,
-      # confirmed the hard way: AnyUnit.TestingPlatform doesn't implement
-      # ITrxReportCapability, so asking MTP's own trx provider for a report
-      # crashes the whole run - with every test already passed - instead of
-      # producing one), which is why this parses plain console output
-      # rather than feeding a trx into a real test-reporter action.
       #
-      # The sed strips ANSI colour codes before they hit the log - MTP
-      # colours "Test run summary:" (green/red) when it decides the run is
-      # CI (confirmed the hard way: reproduces on the real Linux runner,
-      # not locally on macOS even with GITHUB_ACTIONS=true set, so it's
-      # something about that environment specifically, not just an env
-      # var), which otherwise defeats the summary step's own `^Test run
-      # summary:` anchor - it doesn't match a line that actually starts
-      # with an escape sequence, so a run that passed cleanly reported
-      # "crashed before printing a summary" instead.
+      # anyunit-runner (not `dotnet test`) is the actual gate here - it
+      # loads the built assembly directly and writes its own JSON results
+      # (`-o`), which the summary step below feeds to anyunit-report; its
+      # own exit code (0 all passed, 1 otherwise - see AnyUnit.Runner's
+      # own README) is what gates this step. `dotnet test`/Program.fs's
+      # MTP entry point still works for local dev, just isn't exercised
+      # here any more. Loading the assembly into anyunit-runner's own host
+      # process rather than running it as its own entry point is also why
+      # OcrTests.fs/ImageToPdfTests.fs resolve `tessdata/` off the test
+      # assembly's own location now, not AppContext.BaseDirectory - the
+      # two only coincide when the test assembly IS the host process,
+      # confirmed the hard way as a real "missing tessdata" failure here.
       - name: Test
         run: |
-          set -euo pipefail
-          dotnet test QrLinkPdf.Tests/QrLinkPdf.Tests.fsproj --configuration Release --no-build 2>&1 \
-            | sed -E $'s/\x1b\\[[0-9;]*[a-zA-Z]//g' | tee test-desktop.log
+          $HOME/.dotnet/tools/anyunit-runner run \
+            -o results-desktop.json \
+            QrLinkPdf.Tests/bin/Release/net10.0/linux-x64/QrLinkPdf.Tests.dll
         env:
           LD_LIBRARY_PATH: ${{ github.workspace }}/QrLinkPdf.Tests/bin/Release/net10.0/linux-x64
 
@@ -110,48 +119,56 @@ jobs:
       # handful of hand-rolled checks) with the same 79 tests
       # QrLinkPdf.Tests itself runs on desktop - a strict superset.
       #
-      # The `(cd ... && node ...)` subshell keeps the log written at the
-      # repo root alongside test-desktop.log, rather than five directories
-      # deep in the wwwroot output dir. The same ANSI-stripping sed as the
-      # Test step above - AnyUnit.Run.Runner's own "ok"/"FAIL" printer
-      # hasn't been seen to colour its output, but it costs nothing to
-      # guard against the same class of surprise here too.
+      # Program.fs writes its own AnyUnit JSON results (same schema
+      # anyunit-runner's `-o` above writes) to a fixed path inside the
+      # wasm process's own virtual filesystem, and runtests.mjs bridges it
+      # back out to a real file - see both files' own comments. The
+      # `../../../../../` climbs from wwwroot (where runtests.mjs actually
+      # runs, five directories deep in the build output) back to the repo
+      # root, matching the same offset runtests.mjs already uses to find
+      # tessdata/.
       - name: Test WebAssembly (real suite, under node)
         run: |
           set -euo pipefail
           dotnet build QrLinkPdf.Tests.Wasm/QrLinkPdf.Tests.Wasm.fsproj --configuration Release
-          (cd QrLinkPdf.Tests.Wasm/bin/Release/net10.0-browser/wwwroot && node runtests.mjs) 2>&1 \
-            | sed -E $'s/\x1b\\[[0-9;]*[a-zA-Z]//g' | tee test-wasm.log
+          cd QrLinkPdf.Tests.Wasm/bin/Release/net10.0-browser/wwwroot
+          node runtests.mjs ../../../../../results-wasm.json
 
-      # A GitHub Check with real per-test annotations needs a structured
-      # report (trx/JUnit) for a reporter action to read - not available
-      # here (see the Test step's own comment) - so this is the next best
-      # thing: a short table on the run's own summary page, so a failure
-      # is visible without opening either step's full log. `>>
-      # ${GITHUB_STEP_SUMMARY:-/dev/null}` rather than the bare env var so
-      # ci-local.sh (which doesn't set it) discards this harmlessly instead
-      # of failing on an unbound variable.
-      - name: Publish test results to the job summary
+      # A single results-*.json set (one per platform) converts into one
+      # markdown summary and one HTML report covering both - see
+      # AnyUnit.Report's own README on why HTML is the richer, downloaded
+      # artifact and markdown is the bounded "what happened" view that
+      # renders straight into the Actions UI. `if: always()` matters here:
+      # a failing run is exactly when you want this, and results-*.json
+      # from a suite that finished (even with failures) still exists -
+      # only a step that crashed before finishing (a build failure, say)
+      # leaves its own file missing, handled below rather than assumed.
+      - name: Publish test results to the job summary and an HTML report
         if: always()
         run: |
-          {
-            echo "## Desktop tests"
-            if [ -f test-desktop.log ]; then
-              echo '```'
-              grep '^failed ' test-desktop.log || true
-              grep -A5 '^Test run summary:' test-desktop.log || echo "(crashed before printing a summary)"
-              echo '```'
-            else
-              echo '_did not run - an earlier step failed first_'
-            fi
-            echo
-            echo "## WebAssembly tests"
-            if [ -f test-wasm.log ]; then
-              echo '```'
-              grep '^FAIL ' test-wasm.log || true
-              grep '^Total:' test-wasm.log || echo "(crashed before printing a summary)"
-              echo '```'
-            else
-              echo '_did not run - an earlier step failed first_'
-            fi
-          } >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
+          set -euo pipefail
+          results=()
+          [ -f results-desktop.json ] && results+=(results-desktop.json)
+          [ -f results-wasm.json ] && results+=(results-wasm.json)
+
+          if [ "${#results[@]}" -eq 0 ]; then
+            echo '_no test results - an earlier step failed before either suite finished_' \
+              >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
+          else
+            $HOME/.dotnet/tools/anyunit-report convert -f markdown -o summary.md "${results[@]}"
+            cat summary.md >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
+            $HOME/.dotnet/tools/anyunit-report convert -f html -o report.html "${results[@]}"
+          fi
+
+      # A separate step (not folded into the one above) so the artifact
+      # still uploads even if that step's own `results` check finds
+      # nothing and skips report.html - upload-artifact's own
+      # if-no-files-found handles that case without failing the job.
+      - name: Upload full HTML report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: test-report
+          path: report.html
+          if-no-files-found: ignore
+          retention-days: 14

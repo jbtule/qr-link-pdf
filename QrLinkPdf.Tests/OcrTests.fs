@@ -17,13 +17,29 @@ module QrLinkPdf.Tests.OcrTests
 
 open System
 open System.IO
+open System.Reflection
 open SkiaSharp
 open Tesseract
 open AnyUnit.Style.FSharp.Test
 open AnyUnit.Style.Xunit
 open QrLinkPdf
 
-let private tessdataPath = Path.Combine(AppContext.BaseDirectory, "tessdata")
+// Prefers the assembly's own directory over AppContext.BaseDirectory -
+// the two only coincide when this assembly IS the host process (a plain
+// `dotnet test`/`dotnet run`). Under anyunit-runner (test.yml's own CI
+// runner, which loads this assembly into its own separate host process),
+// AppContext.BaseDirectory resolves to anyunit-runner's own install
+// directory instead - confirmed the hard way, as a real "missing
+// tessdata" failure, not a hypothetical. Falls back to
+// AppContext.BaseDirectory when Assembly.Location is empty, though -
+// confirmed the hard way too: under browser-wasm (QrLinkPdf.Tests.Wasm
+// compiles this same file in), Location is always "" (a well-known
+// .NET-on-wasm limitation, not a bug here), which would otherwise crash
+// this with an ArgumentNullException before a single test runs.
+let private tessdataPath =
+    let assemblyDir = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location)
+    let baseDir = if String.IsNullOrEmpty assemblyDir then AppContext.BaseDirectory else assemblyDir
+    Path.Combine(baseDir, "tessdata")
 
 /// Renders text onto a bitmap the same way the CLI/Wasm's own Ocr.fs feeds
 /// Tesseract - no file, no codec, straight from SkiaSharp pixels via

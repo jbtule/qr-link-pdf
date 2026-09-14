@@ -10,8 +10,18 @@
 /// Sdk.BlazorWebAssembly is used anyway).
 module QrLinkPdf.Tests.Wasm.Program
 
+open System
+open System.IO
 open System.Reflection
 open AnyUnit.Run
+
+/// Where the JSON results land inside the wasm process's own virtual
+/// filesystem - NOT a real host path. .NET's File I/O here only ever
+/// reaches Mono's Emscripten-backed virtual FS (confirmed the hard way,
+/// the same lesson runtests.mjs's own tessdata-loading comment already
+/// documents for reads); getting this back out to a real file on disk is
+/// runtests.mjs's job, after runMain() resolves.
+let resultsPath = "/anyunit-results.json"
 
 [<EntryPoint>]
 let main _ =
@@ -28,4 +38,13 @@ let main _ =
             printfn "ok   %s" result.Test.Name)
     printfn ""
     printfn "Total: %d, Failures: %d" runner.Tests.Count failures
+
+    // test.yml's own AnyUnit.Report step reads this (once runtests.mjs
+    // has bridged it out to a real file) - `Runner` (an IJsonSerialize
+    // itself, same shape as ResultsFile/Result) already carries every
+    // result RunAll just produced, so this is the same AnyUnit JSON
+    // schema anyunit-runner's own `-o`/`-output` writes, no extra
+    // accumulation needed on this end.
+    File.WriteAllText(resultsPath, runner.ToListJson())
+
     if failures = 0 then 0 else 1
