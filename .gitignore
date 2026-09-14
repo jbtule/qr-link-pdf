@@ -4,6 +4,14 @@ obj/
 .vs/
 .DS_Store
 
+# test.yml's own Test/Test WebAssembly/report steps write these at the
+# repo root - AnyUnit JSON results and the anyunit-report outputs built
+# from them, not actual build output.
+results-desktop.json
+results-wasm.json
+summary.md
+report.html
+
 # OCR setup steps (README) fetch these locally; not checked in, same as the
 # CLI's tessdata/ directory.
 tessdata/

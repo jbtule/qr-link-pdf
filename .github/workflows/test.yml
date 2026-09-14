@@ -1,0 +1,174 @@
+# The build/test steps shared by every PR check and by deploy.yml's own
+# gate before it ships anything - kept in exactly one place (this file) so
+# the two can't drift apart. Runs standalone on pull_request (that's the
+# check a PR actually sees: "Test", never anything named or shaped like
+# "Deploy" - nothing here touches Cloudflare or GitHub Pages, so there's
+# nothing to feel nervous about approving); deploy.yml's own "test" job
+# pulls it in via `uses:` before publishing on a push to main.
+name: Test
+
+on:
+  pull_request:
+  workflow_call:
+
+# Cancel a superseded push on the same PR/branch rather than queue behind
+# it - unlike deploy.yml's own concurrency group, there's no ordering
+# constraint here to preserve (nothing here ships anything).
+concurrency:
+  group: test-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: '10.0.x'
+          cache: true
+          cache-dependency-path: '**/*.fsproj'
+
+      # PDFium and Skia are Emscripten static archives that get linked into
+      # dotnet.wasm, so the native toolchain is required.
+      - name: Install wasm-tools
+        run: dotnet workload install wasm-tools
+
+      # Standalone AnyUnit CLI tools (nuget.org), pinned to the same
+      # version as the AnyUnit packages both test projects reference (see
+      # their own .fsproj comments). anyunit-runner replaces `dotnet test`
+      # as the actual desktop gate below - see that step's own comment for
+      # why; anyunit-report turns both suites' JSON results into the job
+      # summary and a downloadable HTML report. Referenced by their full
+      # $HOME/.dotnet/tools path everywhere below, not bare on PATH -
+      # ci-local.sh replays this as a plain non-login `bash script.sh`,
+      # which never sources the profile line a real global .NET tool
+      # install would normally add PATH through.
+      - name: Install AnyUnit CLI tools
+        run: |
+          set -euo pipefail
+          dotnet tool install --global AnyUnit.Runner --version 1.1.0
+          dotnet tool install --global AnyUnit.Report --version 1.1.0
+
+      # English trained data for OCR - fetched once here, ahead of Test:
+      # QrLinkPdf.Tests/OcrTests.fs runs real TesseractEngine OCR (not the
+      # fake-engine tests elsewhere in the suite) and fails loudly, not
+      # skips, if this is missing - see its own comment for why. Same file
+      # the CLI's own --ocr yes needs locally (README), not checked in.
+      - name: Fetch OCR trained data
+        run: |
+          set -euo pipefail
+          mkdir -p tessdata
+          curl -sL -o tessdata/eng.traineddata \
+            https://github.com/tesseract-ocr/tessdata_fast/raw/main/eng.traineddata
+
+      # Split from Test below so LD_LIBRARY_PATH can point at the real
+      # output directory - see that step's own comment for why.
+      - name: Build tests
+        run: dotnet build QrLinkPdf.Tests/QrLinkPdf.Tests.fsproj --configuration Release
+
+      # A real, verified-upstream bug (reported), not local misconfiguration:
+      # Tesseract.Native.runtime.linux-x64 bundles its own libssl.so.3/
+      # libcrypto.so.3/libcurl.so.4 (for tesseract's optional model-download
+      # feature) with RUNPATH=$ORIGIN on libcurl.so.4/libtesseract.so - but
+      # that doesn't help here, confirmed the hard way with a minimal
+      # NativeLibrary.Load repro carrying zero xunit/VSTest at all: .NET's
+      # own runtime already has the *system* libssl.so.3/libcrypto.so.3
+      # resident by the time anything tries to load Tesseract's, and once a
+      # shared object satisfying a given SONAME is mapped into the process,
+      # the dynamic linker reuses that mapping for every later NEEDED
+      # reference to the same SONAME regardless of search path - so no
+      # amount of RUNPATH, LD_LIBRARY_PATH set from *inside* the running
+      # process, or explicitly pre-loading the bundled copies by absolute
+      # path can shift it once that's happened. It has to be set before the
+      # dotnet host process starts at all, so its own OpenSSL loading (if
+      # any) picks the bundled version first. Ubuntu 22.04/24.04's system
+      # OpenSSL is 3.0.x; the bundled one needs OPENSSL_3.2/3.3 symbols.
+      # This isn't CI-specific either - a real `dotnet run --ocr yes` on a
+      # stock Linux box hits the exact same thing.
+      #
+      # anyunit-runner (not `dotnet test`) is the actual gate here - it
+      # loads the built assembly directly and writes its own JSON results
+      # (`-o`), which the summary step below feeds to anyunit-report; its
+      # own exit code (0 all passed, 1 otherwise - see AnyUnit.Runner's
+      # own README) is what gates this step. `dotnet test`/Program.fs's
+      # MTP entry point still works for local dev, just isn't exercised
+      # here any more. Loading the assembly into anyunit-runner's own host
+      # process rather than running it as its own entry point is also why
+      # OcrTests.fs/ImageToPdfTests.fs resolve `tessdata/` off the test
+      # assembly's own location now, not AppContext.BaseDirectory - the
+      # two only coincide when the test assembly IS the host process,
+      # confirmed the hard way as a real "missing tessdata" failure here.
+      - name: Test
+        run: |
+          $HOME/.dotnet/tools/anyunit-runner run \
+            -o results-desktop.json \
+            QrLinkPdf.Tests/bin/Release/net10.0/linux-x64/QrLinkPdf.Tests.dll
+        env:
+          LD_LIBRARY_PATH: ${{ github.workspace }}/QrLinkPdf.Tests/bin/Release/net10.0/linux-x64
+
+      # Gate on the REAL test suite actually passing under WebAssembly, not
+      # just linking - a normal Test step above uses the desktop native
+      # libraries and would not catch a wasm-specific difference (see
+      # QrLinkPdf.Tests.Wasm's own comment for what this proves and how).
+      # Supersedes the old QrLinkPdf.Wasm.SmokeTest/smoke-wasm.sh (a
+      # handful of hand-rolled checks) with the same 79 tests
+      # QrLinkPdf.Tests itself runs on desktop - a strict superset.
+      #
+      # Program.fs writes its own AnyUnit JSON results (same schema
+      # anyunit-runner's `-o` above writes) to a fixed path inside the
+      # wasm process's own virtual filesystem, and runtests.mjs bridges it
+      # back out to a real file - see both files' own comments. The
+      # `../../../../../` climbs from wwwroot (where runtests.mjs actually
+      # runs, five directories deep in the build output) back to the repo
+      # root, matching the same offset runtests.mjs already uses to find
+      # tessdata/.
+      - name: Test WebAssembly (real suite, under node)
+        run: |
+          set -euo pipefail
+          dotnet build QrLinkPdf.Tests.Wasm/QrLinkPdf.Tests.Wasm.fsproj --configuration Release
+          cd QrLinkPdf.Tests.Wasm/bin/Release/net10.0-browser/wwwroot
+          node runtests.mjs ../../../../../results-wasm.json
+
+      # A single results-*.json set (one per platform) converts into one
+      # markdown summary and one HTML report covering both - see
+      # AnyUnit.Report's own README on why HTML is the richer, downloaded
+      # artifact and markdown is the bounded "what happened" view that
+      # renders straight into the Actions UI. `if: always()` matters here:
+      # a failing run is exactly when you want this, and results-*.json
+      # from a suite that finished (even with failures) still exists -
+      # only a step that crashed before finishing (a build failure, say)
+      # leaves its own file missing, handled below rather than assumed.
+      - name: Publish test results to the job summary and an HTML report
+        if: always()
+        run: |
+          set -euo pipefail
+          results=()
+          [ -f results-desktop.json ] && results+=(results-desktop.json)
+          [ -f results-wasm.json ] && results+=(results-wasm.json)
+
+          if [ "${#results[@]}" -eq 0 ]; then
+            echo '_no test results - an earlier step failed before either suite finished_' \
+              >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
+          else
+            $HOME/.dotnet/tools/anyunit-report convert -f markdown -o summary.md "${results[@]}"
+            cat summary.md >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
+            $HOME/.dotnet/tools/anyunit-report convert -f html -o report.html "${results[@]}"
+          fi
+
+      # A separate step (not folded into the one above) so the artifact
+      # still uploads even if that step's own `results` check finds
+      # nothing and skips report.html - upload-artifact's own
+      # if-no-files-found handles that case without failing the job.
+      - name: Upload full HTML report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: test-report
+          path: report.html
+          if-no-files-found: ignore
+          retention-days: 14

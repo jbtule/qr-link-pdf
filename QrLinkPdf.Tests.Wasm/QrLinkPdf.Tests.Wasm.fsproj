@@ -27,6 +27,21 @@
     <TargetFramework>net10.0-browser</TargetFramework>
     <RuntimeIdentifier>browser-wasm</RuntimeIdentifier>
     <RootNamespace>QrLinkPdf.Tests.Wasm</RootNamespace>
+    <!-- anyunit-report's cross-platform "same test, N platforms" matrix
+         (test.yml's own HTML/markdown reports) keys results together by
+         assembly identity, not just test name - confirmed the hard way:
+         left at the implicit default (this project's own file name,
+         QrLinkPdf.Tests.Wasm), its 79 tests and the desktop QrLinkPdf.
+         Tests assembly's 79 tests read as 158 entirely unrelated tests
+         instead of 79 tests each run on 2 platforms, so both platform
+         rows showed "79 Not run" - each platform genuinely never ran the
+         *other* assembly's differently-named tests. Setting this to
+         match the desktop project's own assembly name is what actually
+         unifies them, since the compiled-in source files (TestPdfs.fs
+         etc., linked in via this .fsproj's own Compile items) already
+         declare the identical `module QrLinkPdf.Tests.X` namespace
+         either way - only the assembly name itself differed. -->
+    <AssemblyName>QrLinkPdf.Tests</AssemblyName>
     <IsPackable>false</IsPackable>
 
     <!-- Same native linking settings as QrLinkPdf.Wasm/
@@ -88,12 +103,12 @@
     <PackageReference Include="SkiaSharp" Version="4.152.0" />
     <PackageReference Include="SkiaSharp.NativeAssets.WebAssembly" Version="4.152.0" />
     <PackageReference Include="FSharp.Core" Version="10.1.401" />
-    <!-- AnyUnit 1.0.0, real - published to nuget.org, no local feed
+    <!-- AnyUnit 1.1.0, real - published to nuget.org, no local feed
          needed. Same packages/versions QrLinkPdf.Tests.fsproj itself
          uses. -->
-    <PackageReference Include="AnyUnit" Version="1.0.0" />
-    <PackageReference Include="AnyUnit.Style.FSharp" Version="1.0.0" />
-    <PackageReference Include="AnyUnit.Style.Xunit" Version="1.0.0" />
+    <PackageReference Include="AnyUnit" Version="1.1.0" />
+    <PackageReference Include="AnyUnit.Style.FSharp" Version="1.1.0" />
+    <PackageReference Include="AnyUnit.Style.Xunit" Version="1.1.0" />
   </ItemGroup>
 
 </Project>

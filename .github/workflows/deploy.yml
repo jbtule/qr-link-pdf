@@ -10,6 +10,13 @@
 # bandwidth limit, while Cloudflare serves static assets with brotli/zstd and no
 # cap. index.html redirects the heavy boot resources with Blazor's
 # loadBootResource hook, so the page keeps its tools.tuley.name/qr-link-pdf URL.
+#
+# Only runs on push to main (plus workflow_dispatch) - never on a PR. A PR's
+# own checks come from test.yml directly, so nothing here (Cloudflare
+# tokens, GitHub Pages deploys) ever shows up as a check to approve on a
+# PR. The "test" job below pulls test.yml in via `uses:` so the same
+# build/test steps still gate a push to main before it ships - see that
+# file's own comment.
 name: Deploy
 
 on:
@@ -36,7 +43,11 @@ env:
   BASE_HREF: /qr-link-pdf/
 
 jobs:
+  test:
+    uses: ./.github/workflows/test.yml
+
   build:
+    needs: test
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -48,56 +59,19 @@ jobs:
           cache-dependency-path: '**/*.fsproj'
 
       # PDFium and Skia are Emscripten static archives that get linked into
-      # dotnet.wasm, so the native toolchain is required.
+      # dotnet.wasm, so the native toolchain is required for Publish below.
       - name: Install wasm-tools
         run: dotnet workload install wasm-tools
 
-      # English trained data for OCR - fetched once here, ahead of Test:
-      # QrLinkPdf.Tests/OcrTests.fs runs real TesseractEngine OCR (not the
-      # fake-engine tests elsewhere in the suite) and fails loudly, not
-      # skips, if this is missing - see its own comment for why. Same file
-      # the CLI's own --ocr yes needs locally (README), not checked in.
+      # Same trained data test.yml's own OcrTests.fs needs, fetched again
+      # here (separate job, separate runner) - this run copies it into the
+      # published app itself, not just the test assembly's output dir.
       - name: Fetch OCR trained data
         run: |
           set -euo pipefail
           mkdir -p tessdata
           curl -sL -o tessdata/eng.traineddata \
             https://github.com/tesseract-ocr/tessdata_fast/raw/main/eng.traineddata
-
-      # Split from Test below so LD_LIBRARY_PATH can point at the real
-      # output directory - see that step's own comment for why.
-      - name: Build tests
-        run: dotnet build QrLinkPdf.Tests/QrLinkPdf.Tests.fsproj --configuration Release
-
-      # A real, verified-upstream bug (reported), not local misconfiguration:
-      # Tesseract.Native.runtime.linux-x64 bundles its own libssl.so.3/
-      # libcrypto.so.3/libcurl.so.4 (for tesseract's optional model-download
-      # feature) with RUNPATH=$ORIGIN on libcurl.so.4/libtesseract.so - but
-      # that doesn't help here, confirmed the hard way with a minimal
-      # NativeLibrary.Load repro carrying zero xunit/VSTest at all: .NET's
-      # own runtime already has the *system* libssl.so.3/libcrypto.so.3
-      # resident by the time anything tries to load Tesseract's, and once a
-      # shared object satisfying a given SONAME is mapped into the process,
-      # the dynamic linker reuses that mapping for every later NEEDED
-      # reference to the same SONAME regardless of search path - so no
-      # amount of RUNPATH, LD_LIBRARY_PATH set from *inside* the running
-      # process, or explicitly pre-loading the bundled copies by absolute
-      # path can shift it once that's happened. It has to be set before the
-      # dotnet host process starts at all, so its own OpenSSL loading (if
-      # any) picks the bundled version first. Ubuntu 22.04/24.04's system
-      # OpenSSL is 3.0.x; the bundled one needs OPENSSL_3.2/3.3 symbols.
-      # This isn't CI-specific either - a real `dotnet run --ocr yes` on a
-      # stock Linux box hits the exact same thing.
-      - name: Test
-        run: dotnet test QrLinkPdf.Tests/QrLinkPdf.Tests.fsproj --configuration Release --no-build
-        env:
-          LD_LIBRARY_PATH: ${{ github.workspace }}/QrLinkPdf.Tests/bin/Release/net10.0/linux-x64
-
-      # Gate the deploy on the library actually working under WebAssembly.
-      # A normal test run uses the desktop native libraries and would not
-      # catch a broken Emscripten link.
-      - name: Smoke test WebAssembly
-        run: ./smoke-wasm.sh
 
       # Tesseract itself is statically linked into dotnet.wasm at publish
       # time (see QrLinkPdf.Wasm.fsproj's Tesseract.Native.browser-wasm
@@ -126,8 +100,8 @@ jobs:
       # Gate the deploy on OCR actually working end to end in a real
       # browser - uploads smoke-wasm-ocr/fixture.pdf, enables the checkbox,
       # and checks both that OCR found the real URL and that Blazor's
-      # global error banner never showed up. Neither Smoke test WebAssembly
-      # above (no OCR at all) nor a plain dotnet test (desktop native
+      # global error banner never showed up. Neither test.yml's wasm test
+      # suite (no OCR at all) nor a plain dotnet test (desktop native
       # libraries, not the wasm build) would catch the class of bug this
       # exists for - see smoke-wasm-ocr.sh's own comment.
       - name: Smoke test WebAssembly OCR
