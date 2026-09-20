@@ -30,7 +30,9 @@ type State =
     | ReadingFile
     /// File buffered (and a thumbnail attempted), waiting for Process.
     | Ready
-    | Working of string
+    /// What's happening right now, and how far along the whole job is
+    /// (0..1), or None before there's anything to measure against.
+    | Working of message: string * fraction: float option
     | Done of ScanResult
     | Failed of string
 
@@ -100,6 +102,7 @@ type Message =
     | FileChosen of IBrowserFile
     | Loaded of name: string * bytes: byte[] * thumbnail: (string * (float * float)) option
     | ProcessClicked
+    | Progressed of message: string * fraction: float
     | Finished of output: byte[] * result: ScanResult * thumbnails: PageThumbnail list * log: string list
     | Errored of exn
     | Download
@@ -171,18 +174,24 @@ let private letterFindings (result: ScanResult) : Finding list =
 /// bytes, same as the CLI's own readInputBytes.
 let private imageExtensions = set [ ".png"; ".jpg"; ".jpeg"; ".webp"; ".gif"; ".bmp" ]
 
+/// Awaits an actual browser paint (see download.js). Everything this app
+/// does runs on the browser's one thread, so a status rendered just before
+/// a long synchronous stretch is only *seen* if the thread is handed back
+/// long enough to paint it first - which is exactly what this does.
+let private nextPaint (js: IJSRuntime) = js.InvokeVoidAsync("qrLinkPdf.nextPaint").AsTask()
+
 /// The browser's file stream only supports async reads, and QrLinkPdf.Core
 /// reads synchronously - so buffer here first. It costs nothing: Core's
 /// readAll short-circuits on a MemoryStream.
-let private readFileAndThumbnail (file: IBrowserFile) =
+let private readFileAndThumbnail (js: IJSRuntime) (file: IBrowserFile) =
     task {
         use source = file.OpenReadStream(maxAllowedSize = maxUploadBytes)
         let buffer = new MemoryStream()
         do! source.CopyToAsync(buffer)
         let rawBytes = buffer.ToArray()
-        // Let the "Reading..." render land before the image-to-PDF
+        // Let the "Reading..." status actually paint before the image-to-PDF
         // conversion (or the thumbnail render below) blocks the only thread.
-        do! Task.Yield()
+        do! nextPaint js
 
         let bytes =
             if imageExtensions.Contains(Path.GetExtension(file.Name).ToLowerInvariant()) then
@@ -193,9 +202,40 @@ let private readFileAndThumbnail (file: IBrowserFile) =
         return file.Name, bytes, tryRenderThumbnailForPage bytes 0
     }
 
-let private processFile (jsInProcess: IJSInProcessRuntime) (ocrEnabled: bool) (bareDomains: bool) (bytes: byte[]) =
+/// Rough relative cost of each step of a Process job, so the bar moves
+/// roughly evenly in *time* rather than in steps. Measured on a 4-page
+/// fixture in the browser: a page's QR pass (300 DPI raster + a three-level
+/// ZXing pyramid, interpreted) takes ~10s, while its text-extraction pass
+/// takes well under a second - so equal weights would crawl to 30% and
+/// then jump to done. With OCR on, the text pass runs Tesseract on the
+/// page (twice, tiled, when the first pass finds nothing), which puts it
+/// in the same league as the QR pass.
+type private JobWeights =
+    { QrPage: float
+      TextPage: float
+      /// The write-out, and this app's own preview rendering afterwards
+      /// (see processFile), one unit each.
+      Tail: float }
+
+    static member For(ocrEnabled: bool) =
+        { QrPage = 4.0
+          TextPage = (if ocrEnabled then 4.0 else 1.0)
+          Tail = 1.0 }
+
+    /// 0..1 for work-done-so-far `done`, out of a `pageCount`-page job.
+    member this.Fraction (pageCount: int) (``done``: float) =
+        ``done`` / (float pageCount * (this.QrPage + this.TextPage) + 2.0 * this.Tail)
+
+let private processFile
+    (js: IJSRuntime)
+    (jsInProcess: IJSInProcessRuntime)
+    (ocrEnabled: bool)
+    (bareDomains: bool)
+    (bytes: byte[])
+    (dispatch: Message -> unit)
+    =
     task {
-        do! Task.Yield()
+        do! nextPaint js
 
         if ocrEnabled then
             // A no-op if the startup load (see QrApp.Program) already
@@ -213,7 +253,30 @@ let private processFile (jsInProcess: IJSInProcessRuntime) (ocrEnabled: bool) (b
         let ocrEngine = if ocrEnabled then Some(Ocr.create ()) else None
         use input = new MemoryStream(bytes)
         use output = new MemoryStream()
-        let result = PdfQrLinker.link (browserOptions log.Add ocrEngine bareDomains) input output
+
+        let weights = JobWeights.For ocrEnabled
+        // Remembered across reports so Writing (which carries no page
+        // count) and the preview step can place themselves on the bar.
+        let mutable pageCount = 1
+        let scanned count = float count * (weights.QrPage + weights.TextPage)
+
+        let progress (p: ScanProgress) : Task =
+            let message, ``done`` =
+                match p with
+                | ScanningQr(page, count) ->
+                    pageCount <- count
+                    sprintf "Looking for QR codes on page %d of %d..." page count, float (page - 1) * weights.QrPage
+                | ScanningText(page, count) ->
+                    pageCount <- count
+
+                    sprintf "Reading text on page %d of %d..." page count,
+                    float count * weights.QrPage + float (page - 1) * weights.TextPage
+                | Writing -> "Writing the linked PDF...", scanned pageCount
+
+            dispatch (Progressed(message, weights.Fraction pageCount ``done``))
+            nextPaint js
+
+        let! result = PdfQrLinker.linkAsync (browserOptions log.Add ocrEngine bareDomains) progress input output
         // link's PdfDocument is disposed by the time it returns, so the bytes
         // are complete here.
         let output = output.ToArray()
@@ -221,6 +284,8 @@ let private processFile (jsInProcess: IJSInProcessRuntime) (ocrEnabled: bool) (b
         let pagesWithFindings =
             (result.Links @ result.AlreadyLinked) |> List.map (fun l -> l.PageNumber) |> List.distinct |> List.sort
 
+        dispatch (Progressed("Rendering previews...", weights.Fraction pageCount (scanned pageCount + weights.Tail)))
+        do! nextPaint js
         let thumbnails = renderResultThumbnails bytes pagesWithFindings
         return output, result, thumbnails, List.ofSeq log
     }
@@ -264,7 +329,7 @@ let update (js: IJSRuntime) (jsInProcess: IJSInProcessRuntime) message model =
             Findings = []
             Output = None
             Log = [] },
-        Cmd.OfTask.either readFileAndThumbnail file Loaded Errored
+        Cmd.OfTask.either (readFileAndThumbnail js) file Loaded Errored
 
     | Loaded(name, bytes, thumbnail) ->
         { model with
@@ -278,8 +343,21 @@ let update (js: IJSRuntime) (jsInProcess: IJSInProcessRuntime) message model =
         match model.FileBytes with
         | None -> model, Cmd.none
         | Some bytes ->
-            { model with State = Working "Scanning..." },
-            Cmd.OfTask.either (processFile jsInProcess model.OcrEnabled model.BareDomainsEnabled) bytes Finished Errored
+            { model with
+                State = Working("Preparing...", None) },
+            // Not Cmd.OfTask.either: processFile needs dispatch itself, to
+            // report progress while it's still running.
+            Cmd.ofEffect (fun dispatch ->
+                let work = processFile js jsInProcess model.OcrEnabled model.BareDomainsEnabled bytes dispatch
+
+                work.ContinueWith(fun (t: Task<_>) ->
+                    if t.IsFaulted then
+                        dispatch (Errored(t.Exception.GetBaseException()))
+                    else
+                        dispatch (Finished t.Result))
+                |> ignore)
+
+    | Progressed(message, fraction) -> { model with State = Working(message, Some fraction) }, Cmd.none
 
     | Finished(output, result, thumbnails, log) ->
         { model with
@@ -395,17 +473,35 @@ let private resultView (result: ScanResult) (findings: Finding list) dispatch =
         }
     }
 
+/// A message with a bar under it - determinate when there's a fraction,
+/// the browser's own indeterminate animation when there isn't, so even the
+/// stretches with nothing to count (reading the file, loading OCR) visibly
+/// move.
+let private progressView (message: string) (fraction: float option) =
+    div {
+        attr.``class`` "status"
+        "role" => "status"
+
+        cond fraction
+        <| function
+            | Some f ->
+                progress {
+                    "max" => "1"
+                    "value" => sprintf "%.3f" f
+                }
+            | None -> progress { "max" => "1" }
+
+        p { message }
+    }
+
 let private statusView (model: Model) dispatch =
     match model.State with
     | Idle
-    | ReadingFile
     | Ready -> empty ()
 
-    | Working message ->
-        p {
-            attr.``class`` "status"
-            message
-        }
+    | ReadingFile -> progressView "Reading the file..." None
+
+    | Working(message, fraction) -> progressView message fraction
 
     | Failed error ->
         div {

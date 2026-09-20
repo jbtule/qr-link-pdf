@@ -154,6 +154,71 @@ h1 {
     color: var(--muted);
 }
 
+.status p {
+    margin: .4rem 0 0;
+    font-variant-numeric: tabular-nums;
+}
+
+/* Restyled rather than left native: the default bar is a different shape,
+   colour and height in every browser, and doesn't follow color-scheme. */
+.status progress {
+    display: block;
+    width: 100%;
+    max-width: 400px;
+    height: .5rem;
+    border: 0;
+    border-radius: 999px;
+    background: var(--line);
+    overflow: hidden;
+    -webkit-appearance: none;
+    appearance: none;
+}
+
+.status progress::-webkit-progress-bar {
+    background: var(--line);
+    border-radius: 999px;
+}
+
+.status progress::-webkit-progress-value {
+    background: var(--accent);
+    border-radius: 999px;
+    transition: width .2s ease-out;
+}
+
+.status progress::-moz-progress-bar {
+    background: var(--accent);
+    border-radius: 999px;
+}
+
+/* Indeterminate (no value): sweep a short segment across, since the
+   WebKit/Firefox built-in indeterminate animations are lost once the
+   pseudo-elements above are overridden. */
+.status progress:indeterminate {
+    background: linear-gradient(90deg, var(--line) 0 30%, var(--accent) 30% 55%, var(--line) 55% 100%);
+    background-size: 250% 100%;
+    animation: status-sweep 1.2s linear infinite;
+}
+
+.status progress:indeterminate::-webkit-progress-bar {
+    background: transparent;
+}
+
+.status progress:indeterminate::-moz-progress-bar {
+    background: transparent;
+}
+
+@keyframes status-sweep {
+    from { background-position: 100% 0; }
+    to { background-position: 0 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .status progress:indeterminate {
+        animation: none;
+        background: var(--line);
+    }
+}
+
 .result,
 .error {
     margin-top: 1.5rem;

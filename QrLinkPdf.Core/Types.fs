@@ -25,6 +25,18 @@ type QrLink =
 /// what was already linked and left alone.
 type ScanResult = { Links: QrLink list; AlreadyLinked: QrLink list }
 
+/// A point a scan has reached, handed to `PdfQrLinker.scanAsync`/`linkAsync`'s
+/// progress callback just *before* the work it names starts - so a host can
+/// show "page 2 of 5" while page 2 is actually being worked on, and can
+/// await something (a browser repaint, say) before that work blocks the
+/// thread. Pages are 1-based.
+type ScanProgress =
+    | ScanningQr of page: int * pageCount: int
+    | ScanningText of page: int * pageCount: int
+    /// Writing the annotated copy out - `linkAsync` only, never reported by
+    /// `scanAsync`.
+    | Writing
+
 /// One word OCR found on a page, in the rasterized bitmap's pixel space
 /// (origin top-left) - the same space Scanner.DecodedCode already uses, so
 /// it flows through the same pixel-to-point conversion.
