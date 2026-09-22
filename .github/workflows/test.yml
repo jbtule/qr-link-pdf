@@ -143,10 +143,8 @@ jobs:
       # packages to nuget.org on a tag), so prove the pack still works and
       # the packed tool actually runs - `dotnet pack` alone would happily
       # produce a package whose native libraries the tool host can't find.
-      # Installed into a scratch --tool-path from the artifacts folder,
-      # run against the checked-in OCR fixture (without OCR - see the LD_
-      # LIBRARY_PATH comment on Test above for why that's a separate
-      # problem on Linux) and checked for a real link in the output.
+      # Installed into a scratch --tool-path from the artifacts folder and
+      # run against the checked-in OCR fixture, with and without OCR.
       - name: Pack the CLI as a .NET tool and smoke test it
         run: |
           set -euo pipefail
@@ -154,8 +152,11 @@ jobs:
           ls -la artifacts/
           dotnet tool install --tool-path "$RUNNER_TEMP/tool" --add-source artifacts --prerelease QrLinkPdf
           "$RUNNER_TEMP/tool/qr-link-pdf" --version
-          "$RUNNER_TEMP/tool/qr-link-pdf" smoke-wasm-ocr/fixture.pdf "$RUNNER_TEMP/fixture-linked.pdf" | tee tool-smoke.log
-          grep -q "Page 1: linking to" tool-smoke.log
+          # The fixture's only URL is flattened text, so without OCR this
+          # legitimately finds nothing - it proves the natives load and a
+          # PDF round-trips; the OCR run below is what has to find a link.
+          "$RUNNER_TEMP/tool/qr-link-pdf" smoke-wasm-ocr/fixture.pdf "$RUNNER_TEMP/fixture-linked.pdf"
+          test -s "$RUNNER_TEMP/fixture-linked.pdf"
           # The bundled trained data has to be found by the installed tool
           # too - run from a directory with no ./tessdata so only the copy
           # inside the package can satisfy it. LD_LIBRARY_PATH points at
@@ -166,7 +167,7 @@ jobs:
           natives=$(dirname "$(find "$RUNNER_TEMP/tool/.store" -name libtesseract.so | head -1)")
           (cd "$RUNNER_TEMP" && LD_LIBRARY_PATH="$natives" ./tool/qr-link-pdf "$GITHUB_WORKSPACE/smoke-wasm-ocr/fixture.pdf" ocr-linked.pdf --ocr yes --debug yes 2>&1 | tee "$GITHUB_WORKSPACE/tool-ocr-smoke.log")
           ! grep -q "continuing without OCR" tool-ocr-smoke.log
-          grep -q "trying OCR" tool-ocr-smoke.log
+          grep -q "Page 1: linking to" tool-ocr-smoke.log
 
       - uses: actions/upload-artifact@v7
         with:
