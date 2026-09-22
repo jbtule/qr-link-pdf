@@ -129,15 +129,18 @@ let main argv =
         eprintfn "%s" usage
         1
     | Ok((inputPath, outputPath), flags) ->
-        let ocrEngine =
-            if flags.Ocr then
-                Ocr.tryCreate (findTessdata ())
-            else
-                None
+        // Disposed before exit (see Ocr.tryCreate) - `use` on an option
+        // doesn't work, so the None case gets a no-op disposable.
+        let tesseract = if flags.Ocr then Ocr.tryCreate (findTessdata ()) else None
+
+        use _ =
+            match tesseract with
+            | Some engine -> engine :> IDisposable
+            | None -> { new IDisposable with member _.Dispose() = () }
 
         let options =
             { ScanOptions.Default with
-                OcrEngine = ocrEngine
+                OcrEngine = tesseract |> Option.map TesseractWords.ofBitmap
                 MatchBareDomains = flags.BareDomains
                 Trace = if flags.Debug then eprintfn "[debug] %s" else ignore }
 

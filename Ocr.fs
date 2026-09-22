@@ -12,15 +12,17 @@
 module QrLinkPdf.Ocr
 
 open System
-open SkiaSharp
 open Tesseract
 
 /// One-time probe: is Tesseract actually usable? A missing native library
-/// throws here, reliably and catchably.
-let tryCreate (tessdataPath: string) : (SKBitmap -> OcrWord list) option =
+/// throws here, reliably and catchably. Returns the engine itself rather
+/// than a ready-made `SKBitmap -> OcrWord list` so the caller owns its
+/// lifetime: an engine that's still alive at process exit makes Tesseract
+/// print "ObjectCache ... WARNING! LEAK!" lines to stderr for the trained
+/// data's dawg objects, on every OCR run.
+let tryCreate (tessdataPath: string) : TesseractEngine option =
     try
-        let engine = new TesseractEngine(tessdataPath, "eng", EngineMode.Default)
-        Some(TesseractWords.ofBitmap engine)
+        Some(new TesseractEngine(tessdataPath, "eng", EngineMode.Default))
     with ex ->
         // TesseractEngine's constructor throws through a layer of reflection
         // (InteropRuntimeImplementer builds its native bindings dynamically),
