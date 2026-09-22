@@ -43,6 +43,15 @@ jobs:
           cache: true
           cache-dependency-path: '**/*.fsproj'
 
+      # Bundled into the tool packages (see QrLinkPdf.fsproj) so `--ocr yes`
+      # works out of the box; pack fails without it.
+      - name: Fetch OCR trained data
+        run: |
+          set -euo pipefail
+          mkdir -p tessdata
+          curl -sL -o tessdata/eng.traineddata \
+            https://github.com/tesseract-ocr/tessdata_fast/raw/main/eng.traineddata
+
       # Packed again rather than downloaded from the test job: the packages
       # are cheap to rebuild and this keeps the published bits tied to
       # exactly this checkout, not to an artifact that happened to be

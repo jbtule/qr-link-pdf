@@ -156,6 +156,17 @@ jobs:
           "$RUNNER_TEMP/tool/qr-link-pdf" --version
           "$RUNNER_TEMP/tool/qr-link-pdf" smoke-wasm-ocr/fixture.pdf "$RUNNER_TEMP/fixture-linked.pdf" | tee tool-smoke.log
           grep -q "Page 1: linking to" tool-smoke.log
+          # The bundled trained data has to be found by the installed tool
+          # too - run from a directory with no ./tessdata so only the copy
+          # inside the package can satisfy it. LD_LIBRARY_PATH points at
+          # the installed package's own native directory for the same
+          # OpenSSL reason as the Test step above; without it Tesseract
+          # fails to load on Linux for a reason that has nothing to do
+          # with the trained data.
+          natives=$(dirname "$(find "$RUNNER_TEMP/tool/.store" -name libtesseract.so | head -1)")
+          (cd "$RUNNER_TEMP" && LD_LIBRARY_PATH="$natives" ./tool/qr-link-pdf "$GITHUB_WORKSPACE/smoke-wasm-ocr/fixture.pdf" ocr-linked.pdf --ocr yes --debug yes 2>&1 | tee "$GITHUB_WORKSPACE/tool-ocr-smoke.log")
+          ! grep -q "continuing without OCR" tool-ocr-smoke.log
+          grep -q "trying OCR" tool-ocr-smoke.log
 
       - uses: actions/upload-artifact@v7
         with:

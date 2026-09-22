@@ -81,18 +81,20 @@ on it; without it, only QR codes get linked.
   which no amount of smarter text extraction can see. Tesseract itself is
   bundled automatically for win-x64/win-arm64/linux-x64/linux-arm64/osx-arm64
   via [`Tesseract.CrossPlatform`](https://github.com/jbtule/tesseract-nuget-platforms)
-  — nothing to install. It still needs English trained data, looked for in
-  `$TESSDATA_PREFIX`, then `./tessdata` in the current directory, then a
-  `tessdata` next to the executable - first one with `eng.traineddata` wins:
+  — nothing to install. The installed tool also bundles English trained data
+  (`tessdata_fast`), so `--ocr yes` works out of the box. To use a different
+  model, put an `eng.traineddata` in `$TESSDATA_PREFIX` or in `./tessdata`
+  under the current directory — both are checked before the bundled copy.
+  From a checkout (`dotnet run`), nothing is bundled, so fetch it first:
   ```sh
   mkdir -p tessdata
   curl -L -o tessdata/eng.traineddata \
     https://github.com/tesseract-ocr/tessdata_fast/raw/main/eng.traineddata
   ```
 
-  If that's missing (or the platform isn't one of the five above), `--ocr yes`
-  prints one line explaining why and the run continues without OCR rather
-  than failing.
+  If no trained data can be found (or the platform isn't one of the five
+  above), `--ocr yes` prints one line explaining why and the run continues
+  without OCR rather than failing.
 - `--bare-domains yes` also links plain text shaped like a bare domain and
   path (`qrco.de/trails-end`), with no `https://` or `www.` to anchor on —
   see `MatchBareDomains` below for why this is off by default.
@@ -232,7 +234,9 @@ tag>`), and [release.yml](.github/workflows/release.yml) runs the test suite,
 packs, and publishes to nuget.org via Trusted Publishing, then attaches the
 packages to a GitHub release.
 
-To try the packed tool locally without publishing anything:
+To try the packed tool locally without publishing anything (needs
+`tessdata/eng.traineddata` fetched first, as above — it's bundled into the
+packages):
 
 ```sh
 dotnet pack QrLinkPdf.fsproj -c Release -p:PackTool=true

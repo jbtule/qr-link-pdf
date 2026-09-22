@@ -74,6 +74,20 @@
     </ItemGroup>
   </Target>
 
+  <!-- The tool ships with English OCR trained data, so the OCR flag works
+       out of the box: tessdata/eng.traineddata (tessdata_fast, Apache-2.0,
+       ~4 MB - the same file test.yml/deploy.yml fetch, not checked in; a
+       pack without it fails with MSB3030 naming the file) is published
+       into the tool's own directory, which is the last place Program.fs's
+       lookup checks - so $TESSDATA_PREFIX or a ./tessdata in the working
+       directory still override it with a different model. Pack="false"
+       keeps it out of the package's content/ folders, which are for
+       library consumers and would just duplicate it twice over. A plain
+       build/run is unaffected: this only applies when packing. -->
+  <ItemGroup Condition="'$(PackTool)' == 'true'">
+    <Content Include="tessdata/eng.traineddata" Link="tessdata/eng.traineddata" CopyToPublishDirectory="PreserveNewest" Pack="false" />
+  </ItemGroup>
+
   <ItemGroup>
     <PackageReference Include="MinVer" Version="8.0.0" PrivateAssets="all" />
     <None Include="README.md" Pack="true" PackagePath="/" />
