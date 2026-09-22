@@ -13,7 +13,41 @@ type private Flags =
 let private defaultFlags = { Debug = false; Ocr = false; BareDomains = false }
 
 let private usage =
-    "Usage: QrLinkPdf <input.pdf|.png|.jpg> [output.pdf] [--debug yes|no] [--ocr yes|no] [--bare-domains yes|no]"
+    "Usage: qr-link-pdf <input.pdf|.png|.jpg> [output.pdf] [--debug yes|no] [--ocr yes|no] [--bare-domains yes|no]"
+
+/// MinVer stamps the git-derived version (see QrLinkPdf.fsproj) into the
+/// informational version attribute; the plain assembly version is only
+/// ever the major.minor.patch part.
+let private version =
+    let attr =
+        Reflection.Assembly.GetExecutingAssembly()
+        |> System.Reflection.CustomAttributeExtensions.GetCustomAttribute<Reflection.AssemblyInformationalVersionAttribute>
+
+    if isNull attr then "unknown" else attr.InformationalVersion
+
+/// Where to look for `eng.traineddata`, first hit wins: TESSDATA_PREFIX
+/// (Tesseract's own convention), a `tessdata/` in the current directory,
+/// then one next to the executable. The last is the only one that used to
+/// be checked, and it's the wrong answer for a `dotnet tool install` - the
+/// executable then lives under ~/.dotnet/tools/.store/<pkg>/<version>/...,
+/// which nobody should have to find, and which moves on every upgrade.
+let private tessdataCandidates () =
+    [ match Environment.GetEnvironmentVariable "TESSDATA_PREFIX" with
+      | null
+      | "" -> ()
+      | prefix -> prefix
+      IO.Path.Combine(Environment.CurrentDirectory, "tessdata")
+      IO.Path.Combine(AppContext.BaseDirectory, "tessdata") ]
+
+let private findTessdata () =
+    let candidates = tessdataCandidates ()
+
+    match candidates |> List.tryFind (fun dir -> IO.File.Exists(IO.Path.Combine(dir, "eng.traineddata"))) with
+    | Some dir -> dir
+    | None ->
+        // Fall through to the last candidate so Ocr.tryCreate's own
+        // "continuing without OCR" message names a concrete path.
+        List.last candidates
 
 /// Recognized image extensions, wrapped in a one-page PDF via ImageToPdf
 /// before anything else sees them - everything past this point (including
@@ -66,6 +100,17 @@ let private defaultOutputPath (inputPath: string) =
 
 [<EntryPoint>]
 let main argv =
+    match List.ofArray argv with
+    | [ "--version" ] ->
+        printfn "%s" version
+        exit 0
+    | [ "--help" ]
+    | [ "-h" ]
+    | [] ->
+        printfn "%s" usage
+        exit 0
+    | _ -> ()
+
     let paths, flagArgs = splitPaths (List.ofArray argv)
 
     let resolvedPaths =
@@ -86,8 +131,7 @@ let main argv =
     | Ok((inputPath, outputPath), flags) ->
         let ocrEngine =
             if flags.Ocr then
-                let tessdataPath = IO.Path.Combine(AppContext.BaseDirectory, "tessdata")
-                Ocr.tryCreate tessdataPath
+                Ocr.tryCreate (findTessdata ())
             else
                 None
 

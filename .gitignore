@@ -28,3 +28,4 @@ QrLinkPdf.Wasm/wwwroot/tesseract-wasm/
 
 # smoke-wasm-ocr.sh's npm/Playwright dependencies.
 smoke-wasm-ocr/node_modules/
+artifacts/

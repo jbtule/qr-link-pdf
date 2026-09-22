@@ -26,6 +26,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+        with:
+          # MinVer (QrLinkPdf.fsproj) derives the tool's version from the
+          # nearest vX.Y.Z tag, which a shallow clone can't see - it'd
+          # silently pack 0.0.0-alpha.0 instead.
+          fetch-depth: 0
 
       - uses: actions/setup-dotnet@v6
         with:
@@ -133,6 +138,30 @@ jobs:
           dotnet build QrLinkPdf.Tests.Wasm/QrLinkPdf.Tests.Wasm.fsproj --configuration Release
           cd QrLinkPdf.Tests.Wasm/bin/Release/net10.0-browser/wwwroot
           node runtests.mjs ../../../../../results-wasm.json
+
+      # The CLI ships as a .NET tool (release.yml pushes these same
+      # packages to nuget.org on a tag), so prove the pack still works and
+      # the packed tool actually runs - `dotnet pack` alone would happily
+      # produce a package whose native libraries the tool host can't find.
+      # Installed into a scratch --tool-path from the artifacts folder,
+      # run against the checked-in OCR fixture (without OCR - see the LD_
+      # LIBRARY_PATH comment on Test above for why that's a separate
+      # problem on Linux) and checked for a real link in the output.
+      - name: Pack the CLI as a .NET tool and smoke test it
+        run: |
+          set -euo pipefail
+          dotnet pack QrLinkPdf.fsproj --configuration Release -p:PackTool=true
+          ls -la artifacts/
+          dotnet tool install --tool-path "$RUNNER_TEMP/tool" --add-source artifacts --prerelease QrLinkPdf
+          "$RUNNER_TEMP/tool/qr-link-pdf" --version
+          "$RUNNER_TEMP/tool/qr-link-pdf" smoke-wasm-ocr/fixture.pdf "$RUNNER_TEMP/fixture-linked.pdf" | tee tool-smoke.log
+          grep -q "Page 1: linking to" tool-smoke.log
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: nupkg
+          path: artifacts/*.nupkg
+          retention-days: 14
 
       # A single results-*.json set (one per platform) converts into one
       # markdown summary and one HTML report covering both - see

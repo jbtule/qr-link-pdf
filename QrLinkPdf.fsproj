@@ -15,12 +15,68 @@
          matching desktop RID) but the exact same "no RID" setup threw
          DllNotFoundException in CI on Linux once something there actually
          constructed a TesseractEngine (QrLinkPdf.Tests/OcrTests.fs). -->
-    <RuntimeIdentifier>$(NETCoreSdkRuntimeIdentifier)</RuntimeIdentifier>
+    <RuntimeIdentifier Condition="'$(PackTool)' != 'true'">$(NETCoreSdkRuntimeIdentifier)</RuntimeIdentifier>
+
+    <!-- Shipped as a global .NET tool (`dotnet tool install -g QrLinkPdf`),
+         packed with `dotnet pack -p:PackTool=true`. That drops the RID pin
+         above so the outer build is RID-less, and ToolPackageRuntimeIdentifiers
+         then has the SDK pack one small RID-specific package per platform
+         (QrLinkPdf.linux-x64 etc., each carrying only its own native
+         libraries) plus a tiny top-level QrLinkPdf that just points at them
+         - `dotnet tool install` picks the right one. A single RID-less
+         package was tried first and came out at 253 MB compressed even
+         with symbols stripped (every platform's PDFium, Skia and Tesseract
+         at once), over nuget.org's 250 MB cap.
+
+         The RIDs are the ones Tesseract.Native ships natives for plus
+         osx-x64, where PDFium/Skia work and the OCR flag degrades to a
+         one-line "continuing without OCR" (see Ocr.fs). The condition is
+         on a dedicated property rather than on PackAsTool so a plain
+         `dotnet build`/`dotnet run` keeps the pin and its flat native
+         asset - see the comment above for why it needs one. -->
+    <PackAsTool>true</PackAsTool>
+    <ToolCommandName>qr-link-pdf</ToolCommandName>
+    <ToolPackageRuntimeIdentifiers Condition="'$(PackTool)' == 'true'">win-x64;win-arm64;linux-x64;linux-arm64;osx-x64;osx-arm64</ToolPackageRuntimeIdentifiers>
+    <!-- Restore needs the same list, or the per-RID inner packs fail with
+         NETSDK1047 (no assets-file target for that RID). -->
+    <RuntimeIdentifiers Condition="'$(PackTool)' == 'true'">$(ToolPackageRuntimeIdentifiers)</RuntimeIdentifiers>
+    <PackageId>QrLinkPdf</PackageId>
+    <Description>Finds QR codes and plain-text URLs in a PDF (or a photo of a flyer) and adds clickable link annotations over them.</Description>
+    <Authors>Jay Tuley</Authors>
+    <PackageLicenseExpression>AGPL-3.0-or-later</PackageLicenseExpression>
+    <PackageProjectUrl>https://github.com/jbtule/qr-link-pdf</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/jbtule/qr-link-pdf</RepositoryUrl>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <PackageTags>pdf;qr;qrcode;links;ocr;cli;dotnet-tool</PackageTags>
+    <PackageOutputPath>$(MSBuildThisFileDirectory)artifacts/</PackageOutputPath>
+
+    <!-- Versioned from git tags by MinVer (below): a `vX.Y.Z` tag on the
+         commit gives exactly X.Y.Z; anything after it gets
+         X.Y.(Z+1)-alpha.0.<height>, and a repo with no tag at all is
+         0.0.0-alpha.0.<height>. No version is written down anywhere in the
+         tree - tagging is the release. -->
+    <MinVerTagPrefix>v</MinVerTagPrefix>
   </PropertyGroup>
 
   <ItemGroup>
     <Compile Include="Ocr.fs" />
     <Compile Include="Program.fs" />
+  </ItemGroup>
+
+  <!-- SkiaSharp's Windows native packages ship a ~99 MB libSkiaSharp.pdb
+       next to the DLL, and a tool pack is a publish-layout snapshot, so
+       without this each Windows package carries debug symbols nobody
+       will ever load. In a RID-specific publish the file lands flat in
+       the output, not under runtimes/, so match on the name. -->
+  <Target Name="DropNativeSymbolsFromToolPack" AfterTargets="ComputeResolvedFilesToPublishList" Condition="'$(PackTool)' == 'true'">
+    <ItemGroup>
+      <ResolvedFileToPublish Remove="@(ResolvedFileToPublish)" Condition="'%(Filename)%(Extension)' == 'libSkiaSharp.pdb'" />
+    </ItemGroup>
+  </Target>
+
+  <ItemGroup>
+    <PackageReference Include="MinVer" Version="8.0.0" PrivateAssets="all" />
+    <None Include="README.md" Pack="true" PackagePath="/" />
   </ItemGroup>
 
   <ItemGroup>

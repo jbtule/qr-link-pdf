@@ -1,0 +1,83 @@
+# Push a tag "vX.Y.Z" to publish the CLI to nuget.org as the `QrLinkPdf`
+# .NET tool (`dotnet tool install -g QrLinkPdf`) at exactly that version,
+# and attach the packages to a GitHub release for the tag. The version is
+# never written down in the tree - MinVer (see QrLinkPdf.fsproj) reads it
+# off the tag, so there's nothing to keep in sync and nothing to verify.
+#
+# Publishes via nuget.org Trusted Publishing (OIDC) - no long-lived API key
+# secret. Same setup as jbtule/tesseract-nuget-platforms' release.yml:
+#   1. A Trusted Publishing policy on nuget.org (account -> Trusted
+#      Publishing) for this repo + this workflow file, release.yml.
+#   2. A NUGET_USER repo secret holding the nuget.org profile name.
+#
+# Reuses test.yml as its gate first, same as deploy.yml does - a tag on a
+# commit that doesn't pass never ships.
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    uses: ./.github/workflows/test.yml
+
+  publish:
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write  # gh release create
+      id-token: write  # Trusted Publishing
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: '10.0.x'
+          cache: true
+          cache-dependency-path: '**/*.fsproj'
+
+      # Packed again rather than downloaded from the test job: the packages
+      # are cheap to rebuild and this keeps the published bits tied to
+      # exactly this checkout, not to an artifact that happened to be
+      # lying around.
+      - name: Pack
+        run: |
+          set -euo pipefail
+          dotnet pack QrLinkPdf.fsproj --configuration Release -p:PackTool=true
+          ls -la artifacts/
+          # A tag build must produce exactly the tag's version - anything
+          # with a prerelease suffix here means MinVer couldn't see the tag.
+          ls artifacts/QrLinkPdf."${GITHUB_REF_NAME#v}".nupkg
+
+      # Per nuget.org's guidance the short-lived key is minted right before
+      # pushing, not earlier in the job.
+      - name: NuGet login (OIDC -> temp API key)
+        uses: NuGet/login@v1
+        id: login
+        with:
+          user: ${{ secrets.NUGET_USER }}
+
+      # The RID-specific packages go first: the top-level QrLinkPdf
+      # package is just a pointer to them, and a `dotnet tool install`
+      # that found the pointer before its target would fail.
+      - name: Push to nuget.org
+        run: |
+          set -euo pipefail
+          for f in artifacts/QrLinkPdf.{win,linux,osx}-*.nupkg artifacts/QrLinkPdf."${GITHUB_REF_NAME#v}".nupkg; do
+            dotnet nuget push "$f" \
+              --api-key "${{ steps.login.outputs.NUGET_API_KEY }}" \
+              --source https://api.nuget.org/v3/index.json \
+              --skip-duplicate
+          done
+
+      - name: GitHub release
+        run: gh release create "$GITHUB_REF_NAME" --generate-notes --verify-tag artifacts/*.nupkg
+        env:
+          GH_TOKEN: ${{ github.token }}

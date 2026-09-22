@@ -51,9 +51,15 @@ is left alone.
 
 ## Usage
 
+The CLI ships as a .NET tool:
+
 ```sh
-dotnet run -- <input.pdf|.png|.jpg> [output.pdf] [--debug yes|no] [--ocr yes|no] [--bare-domains yes|no]
+dotnet tool install -g QrLinkPdf
+qr-link-pdf <input.pdf|.png|.jpg> [output.pdf] [--debug yes|no] [--ocr yes|no] [--bare-domains yes|no]
 ```
+
+(Or from a checkout, `dotnet run -- <input.pdf> ...` with the same
+arguments.) `qr-link-pdf --version` prints the installed version.
 
 `output.pdf` defaults to `<input>-linked.pdf` next to the input file if
 omitted — the same name the browser app's download already uses. Every flag
@@ -75,8 +81,9 @@ on it; without it, only QR codes get linked.
   which no amount of smarter text extraction can see. Tesseract itself is
   bundled automatically for win-x64/win-arm64/linux-x64/linux-arm64/osx-arm64
   via [`Tesseract.CrossPlatform`](https://github.com/jbtule/tesseract-nuget-platforms)
-  — nothing to install. It still needs English trained data next to the
-  executable:
+  — nothing to install. It still needs English trained data, looked for in
+  `$TESSDATA_PREFIX`, then `./tessdata` in the current directory, then a
+  `tessdata` next to the executable - first one with `eng.traineddata` wins:
   ```sh
   mkdir -p tessdata
   curl -L -o tessdata/eng.traineddata \
@@ -90,7 +97,7 @@ on it; without it, only QR codes get linked.
   path (`qrco.de/trails-end`), with no `https://` or `www.` to anchor on —
   see `MatchBareDomains` below for why this is off by default.
 
-Example: `dotnet run -- flyer.pdf --ocr yes --bare-domains yes`.
+Example: `qr-link-pdf flyer.pdf --ocr yes --bare-domains yes`.
 
 ## Library
 
@@ -211,6 +218,32 @@ That builds the CLI and the library. The browser app is deliberately left out
 of the default build so the `wasm-tools` workload isn't needed just to build
 the command-line tool — build it explicitly with
 `dotnet build QrLinkPdf.Wasm/QrLinkPdf.Wasm.fsproj`.
+
+### Releasing the CLI
+
+```sh
+git tag v1.2.3 && git push origin v1.2.3
+```
+
+That's the whole release: [MinVer](https://github.com/adamralph/minver) reads
+the version off the tag (there's no version number written down anywhere in
+the tree — an untagged commit builds as `<next-patch>-alpha.0.<commits since
+tag>`), and [release.yml](.github/workflows/release.yml) runs the test suite,
+packs, and publishes to nuget.org via Trusted Publishing, then attaches the
+packages to a GitHub release.
+
+To try the packed tool locally without publishing anything:
+
+```sh
+dotnet pack QrLinkPdf.fsproj -c Release -p:PackTool=true
+dotnet tool install --tool-path /tmp/qr --add-source artifacts --prerelease QrLinkPdf
+/tmp/qr/qr-link-pdf --version
+```
+
+`-p:PackTool=true` is what switches the project from its normal single-RID
+build into one small RID-specific package per platform (plus a tiny
+top-level `QrLinkPdf` that points at them) — see the comments in
+[QrLinkPdf.fsproj](QrLinkPdf.fsproj) for why it's split that way.
 
 ## Tests
 
