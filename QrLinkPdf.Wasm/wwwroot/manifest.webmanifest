@@ -2,6 +2,7 @@
     "name": "QR codes to clickable links",
     "short_name": "QR Link PDF",
     "description": "Turn QR codes and plain-text URLs in a PDF into real, clickable link annotations.",
+    "id": "/qr-link-pdf/",
     "start_url": ".",
     "scope": ".",
     "display": "standalone",
